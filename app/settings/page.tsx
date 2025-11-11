@@ -81,8 +81,8 @@ export default function SettingsPage() {
   const tabs = [
     { id: 'general', label: 'عام', icon: '⚙️' },
     { id: 'interface', label: 'واجهة', icon: '🎨' },
-    { id: 'security', label: 'أمان', icon: '🔒' },
-    { id: 'communications', label: 'اتصالات', icon: '📧' },
+    // { id: 'security', label: 'أمان', icon: '🔒' },
+    // { id: 'communications', label: 'اتصالات', icon: '📧' },
     // { id: 'integrations', label: 'تكاملات', icon: '🔗' }
   ];
 
@@ -152,7 +152,7 @@ export default function SettingsPage() {
               placeholder="https://instagram.com/..."
             />
           </div>
-          <div className="form-group">
+          {/* <div className="form-group">
             <label htmlFor="whatsapp">واتساب</label>
             <input
               type="tel"
@@ -162,7 +162,7 @@ export default function SettingsPage() {
               onChange={(e) => handleInputChange('contactLinks', 'whatsapp', e.target.value)}
               placeholder="+20 1XX XXX XXXX"
             />
-          </div>
+          </div> */}
           <div className="form-group">
             <label htmlFor="email">البريد الإلكتروني</label>
             <input
@@ -174,7 +174,7 @@ export default function SettingsPage() {
               placeholder="contact@example.com"
             />
           </div>
-          <div className="form-group">
+          {/* <div className="form-group">
             <label htmlFor="phone">الهاتف</label>
             <input
               type="tel"
@@ -184,7 +184,7 @@ export default function SettingsPage() {
               onChange={(e) => handleInputChange('contactLinks', 'phone', e.target.value)}
               placeholder="+20 2 XXXX XXXX"
             />
-          </div>
+          </div> */}
         </div>
       </div>
 
@@ -192,7 +192,7 @@ export default function SettingsPage() {
         <h4 className="group-title">أرقام الدعم</h4>
         <div className="form-grid">
           <div className="form-group">
-            <label htmlFor="primarySupport">الدعم الأساسي</label>
+            <label htmlFor="primarySupport">الدعم الأساسي (واتساب) </label>
             <input
               type="tel"
               id="primarySupport"
@@ -288,7 +288,7 @@ export default function SettingsPage() {
           </div>
         </div>
         
-        <div className="form-group">
+        {/* <div className="form-group">
           <label className="toggle-label">
             <span className="toggle-text">تشغيل البانرات الجانبية</span>
             <div className="toggle-switch-container">
@@ -304,7 +304,7 @@ export default function SettingsPage() {
               </span>
             </div>
           </label>
-        </div>
+        </div> */}
       </div>
     </div>
   );

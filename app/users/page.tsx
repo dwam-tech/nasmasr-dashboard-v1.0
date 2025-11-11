@@ -13,15 +13,25 @@ interface User {
   adsCount: number;
   role: string;
   lastLogin: string;
+  phoneVerified?: boolean;
+  package?: UserPackage;
 }
 
 interface Toast {
   id: string;
   message: string;
   type: 'success' | 'error' | 'info' | 'warning';
+  actions?: { label: string; variant?: 'primary' | 'secondary'; onClick?: () => void }[];
+  duration?: number; // milliseconds; if 0 or actions provided, stays until closed
 }
 
-// Generate 100 mock users
+interface UserPackage {
+  plan: 'متميز' | 'ستاندر';
+  adsCount: number;
+  expiryDate: string; // YYYY-MM-DD
+}
+
+// Generate 100 mock users deterministically to avoid hydration mismatches
 const generateMockUsers = (): User[] => {
   const names = [
     'أحمد محمد علي', 'فاطمة أحمد', 'محمد حسن', 'سارة إبراهيم', 'علي أحمد',
@@ -29,39 +39,49 @@ const generateMockUsers = (): User[] => {
     'ليلى حسام', 'كريم محمد', 'رانيا عادل', 'طارق سعيد', 'دينا أشرف',
     'حسام الدين', 'نادية فؤاد', 'وائل صلاح', 'منى عبدالرحمن', 'أسامة نبيل'
   ];
-  
   const roles = ['معلن', 'مستخدم', 'مشرف', 'مراجع'];
   const statuses: ('active' | 'banned')[] = ['active', 'banned'];
-  
+
   const users: User[] = [];
-  
+  const baseDate = new Date('2024-06-01');
+  const dayMs = 24 * 60 * 60 * 1000;
+
   for (let i = 1; i <= 100; i++) {
-    const randomName = names[Math.floor(Math.random() * names.length)];
-    const randomRole = roles[Math.floor(Math.random() * roles.length)];
-    const randomStatus = Math.random() > 0.8 ? 'banned' : 'active'; // 20% chance of being banned
-    const randomAdsCount = Math.floor(Math.random() * 50);
-    const randomPhone = `+2010${String(Math.floor(Math.random() * 100000000)).padStart(8, '0')}`;
-    
-    // Generate random dates within the last 6 months
-    const registrationDate = new Date();
-    registrationDate.setDate(registrationDate.getDate() - Math.floor(Math.random() * 180));
-    
-    const lastLoginDate = new Date();
-    lastLoginDate.setDate(lastLoginDate.getDate() - Math.floor(Math.random() * 30));
-    
+    const name = `${names[(i - 1) % names.length]} ${i}`;
+    const role = roles[(i - 1) % roles.length];
+    const status = i % 5 === 0 ? 'banned' : 'active';
+    const adsCount = (i * 7) % 50;
+    const phone = `+2010${String((i * 123456) % 100000000).padStart(8, '0')}`;
+
+    const registrationDate = new Date(baseDate.getTime() - (i % 180) * dayMs);
+    const lastLoginDate = new Date(baseDate.getTime() - (i % 30) * dayMs);
+
+    const hasPackage = i % 10 < 3;
+    const pkg: UserPackage | undefined = hasPackage
+      ? {
+          plan: (i % 2 === 0 ? 'متميز' : 'ستاندر') as UserPackage['plan'],
+          adsCount: (i % 20) + 5,
+          expiryDate: new Date(baseDate.getTime() + ((i % 60) + 15) * dayMs)
+            .toISOString()
+            .split('T')[0],
+        }
+      : undefined;
+
     users.push({
       id: String(i),
-      name: `${randomName} ${i}`,
-      phone: randomPhone,
+      name,
+      phone,
       userCode: `USR${String(i).padStart(3, '0')}`,
-      status: randomStatus,
+      status,
       registrationDate: registrationDate.toISOString().split('T')[0],
-      adsCount: randomAdsCount,
-      role: randomRole,
-      lastLogin: lastLoginDate.toISOString().split('T')[0]
+      adsCount,
+      role,
+      lastLogin: lastLoginDate.toISOString().split('T')[0],
+      phoneVerified: i % 4 === 0,
+      package: pkg,
     });
   }
-  
+
   return users;
 };
 
@@ -77,6 +97,110 @@ export default function UsersPage() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const usersPerPage = 10;
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState<User | null>(null);
+
+  // Packages modal state
+  const [isPackagesModalOpen, setIsPackagesModalOpen] = useState(false);
+  const [selectedUserForPackages, setSelectedUserForPackages] = useState<User | null>(null);
+  const [packagesForm, setPackagesForm] = useState<UserPackage>({
+    plan: 'ستاندر',
+    adsCount: 0,
+    expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split('T')[0],
+  });
+
+  // Verify modal state
+  const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
+  const [userForVerify, setUserForVerify] = useState<User | null>(null);
+  const [verificationCode, setVerificationCode] = useState<string>('');
+
+  const generateVerificationCode = () => Math.floor(100000 + Math.random() * 900000).toString();
+  const openVerifyModal = (user: User) => {
+    const code = generateVerificationCode();
+    setVerificationCode(code);
+    setUserForVerify(user);
+    setIsVerifyModalOpen(true);
+  };
+  const closeVerifyModal = () => {
+    setIsVerifyModalOpen(false);
+    setUserForVerify(null);
+    setVerificationCode('');
+  };
+  const copyVerificationCode = async () => {
+    if (!verificationCode) return;
+    try {
+      await navigator.clipboard.writeText(verificationCode);
+      showToast('تم نسخ كود التحقق بنجاح', 'success');
+    } catch (e) {
+      showToast('تعذر النسخ تلقائيًا، يرجى النسخ يدويًا', 'warning');
+    }
+  };
+  const openWhatsAppWithCode = (user: User) => {
+    const code = generateVerificationCode();
+    setVerificationCode(code);
+    setUserForVerify(user);
+    const phoneNormalized = user.phone.replace(/[^+\d]/g, '').replace('+', '');
+    const message = encodeURIComponent(`كود التحقق: ${code}`);
+    const waUrl = `https://wa.me/${phoneNormalized}?text=${message}`;
+    try {
+      window.open(waUrl, '_blank');
+      showToast(`تم فتح واتساب وإدراج الكود: ${code}`, 'success');
+    } catch (e) {
+      showToast('تعذر فتح واتساب، تحقق من الإعدادات', 'error');
+    }
+  };
+
+  // Add User modal state
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({
+    name: '',
+    phone: '',
+    role: 'مستخدم',
+    status: 'active' as User['status'],
+    adsCount: 0,
+    registrationDate: new Date().toISOString().split('T')[0],
+    lastLogin: new Date().toISOString().split('T')[0],
+  });
+
+  const openAddUserModal = () => setIsAddModalOpen(true);
+  const closeAddUserModal = () => setIsAddModalOpen(false);
+  const handleNewUserChange = (field: keyof typeof newUserForm, value: string | number) => {
+    setNewUserForm(prev => ({ ...prev, [field]: value }));
+  };
+  const saveNewUser = () => {
+    if (!newUserForm.name.trim() || !newUserForm.phone.trim()) {
+      showToast('يرجى إدخال الاسم ورقم الهاتف', 'warning');
+      return;
+    }
+    const newId = Date.now().toString();
+    const newUser: User = {
+      id: newId,
+      name: newUserForm.name.trim(),
+      phone: newUserForm.phone.trim(),
+      userCode: `USR${newId.slice(-3)}`,
+      status: newUserForm.status,
+      registrationDate: newUserForm.registrationDate,
+      adsCount: typeof newUserForm.adsCount === 'number' ? newUserForm.adsCount : Number(newUserForm.adsCount) || 0,
+      role: newUserForm.role,
+      lastLogin: newUserForm.lastLogin,
+      phoneVerified: false,
+    };
+    setUsers(prev => [newUser, ...prev]);
+    setCurrentPage(1);
+    setIsAddModalOpen(false);
+    setNewUserForm({
+      name: '',
+      phone: '',
+      role: 'مستخدم',
+      status: 'active',
+      adsCount: 0,
+      registrationDate: new Date().toISOString().split('T')[0],
+      lastLogin: new Date().toISOString().split('T')[0],
+    });
+    showToast('تم إضافة المستخدم بنجاح', 'success');
+  };
 
   // Mock ads data with categories and images
   const mockAds = [
@@ -133,14 +257,27 @@ export default function UsersPage() {
   const currentUsers = filteredUsers.slice(startIndex, endIndex);
 
   // Toast functions
-  const showToast = (message: string, type: Toast['type'] = 'info') => {
+  const showToast = (
+    message: string,
+    type: Toast['type'] = 'info',
+    options?: { actions?: Toast['actions']; duration?: number }
+  ) => {
     const id = Date.now().toString();
-    const newToast: Toast = { id, message, type };
+    const newToast: Toast = {
+      id,
+      message,
+      type,
+      actions: options?.actions,
+      duration: options?.duration,
+    };
     setToasts(prev => [...prev, newToast]);
-    
-    setTimeout(() => {
-      setToasts(prev => prev.filter(toast => toast.id !== id));
-    }, 4000);
+
+    const autoDuration = options?.duration ?? 4000;
+    if (!newToast.actions && autoDuration > 0) {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(toast => toast.id !== id));
+      }, autoDuration);
+    }
   };
 
   const removeToast = (id: string) => {
@@ -151,6 +288,12 @@ export default function UsersPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm]);
+
+  // Reset edit mode when switching selected user
+  useEffect(() => {
+    setIsEditing(false);
+    setEditForm(null);
+  }, [selectedUser]);
 
   const handleBanUser = (userId: string) => {
     const user = users.find(u => u.id === userId);
@@ -170,9 +313,141 @@ export default function UsersPage() {
     );
   };
 
+  const handleDeleteUser = (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    showToast(
+      `هل أنت متأكد من حذف المستخدم ${user.name}؟`,
+      'warning',
+      {
+        actions: [
+          {
+            label: 'حذف',
+            variant: 'primary',
+            onClick: () => {
+              setUsers(prev => prev.filter(u => u.id !== userId));
+              if (selectedUser?.id === userId) {
+                setShowUserProfile(false);
+                setSelectedUser(null);
+              }
+              showToast('تم حذف المستخدم بنجاح', 'success');
+            },
+          },
+          { label: 'إلغاء', variant: 'secondary' },
+        ],
+        duration: 0,
+      }
+    );
+  };
+
+  const handleVerifyPhone = (userId: string) => {
+    setUsers(prev => prev.map(u => (u.id === userId ? { ...u, phoneVerified: true } : u)));
+    const user = users.find(u => u.id === userId);
+    showToast(`تم توثيق رقم هاتف المستخدم ${user?.name} بنجاح`, 'success');
+  };
+
+  const openPackagesModal = (user: User) => {
+    setSelectedUserForPackages(user);
+    setPackagesForm(
+      user.package ?? {
+        plan: 'ستاندر',
+        adsCount: user.adsCount ?? 0,
+        expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split('T')[0],
+      }
+    );
+    setIsPackagesModalOpen(true);
+  };
+
+  const closePackagesModal = () => {
+    setIsPackagesModalOpen(false);
+    setSelectedUserForPackages(null);
+  };
+
+  const handlePackagesChange = (field: keyof UserPackage, value: string | number) => {
+    setPackagesForm(prev => ({ ...prev, [field]: value } as UserPackage));
+  };
+
+  const savePackages = () => {
+    if (!selectedUserForPackages) return;
+    const updatedUser = {
+      ...selectedUserForPackages,
+      package: {
+        plan: packagesForm.plan,
+        adsCount: typeof packagesForm.adsCount === 'number' ? packagesForm.adsCount : Number(packagesForm.adsCount) || 0,
+        expiryDate: packagesForm.expiryDate,
+      },
+    } as User;
+    setUsers(prev => prev.map(u => (u.id === selectedUserForPackages.id ? updatedUser : u)));
+    if (selectedUser?.id === selectedUserForPackages.id) {
+      setSelectedUser(updatedUser);
+    }
+    setIsPackagesModalOpen(false);
+    setSelectedUserForPackages(null);
+    showToast('تم تحديث الباقة بنجاح', 'success');
+  };
+
+  // Calculate package duration days based on acceptance, ad start, expiry
+  const calculatePackageDays = (user: User | null, expiryDate: string): number => {
+    if (!user || !expiryDate) return 0;
+    const dayMs = 24 * 60 * 60 * 1000;
+    const acceptance = new Date(user.registrationDate);
+    // Use earliest publishDate from mockAds as a proxy for ad start
+    const earliestAdStr = mockAds
+      .map(a => a.publishDate)
+      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+    const adStart = earliestAdStr ? new Date(earliestAdStr) : acceptance;
+    const start = adStart.getTime() > acceptance.getTime() ? adStart : acceptance;
+    const end = new Date(expiryDate);
+    const diff = Math.ceil((end.getTime() - start.getTime()) / dayMs);
+    return diff > 0 ? diff : 0;
+  };
+
+  // Remaining days (countdown) that decreases over time
+  const getRemainingDays = (user: User | null, expiryDate: string): number => {
+    if (!user || !expiryDate) return 0;
+    const dayMs = 24 * 60 * 60 * 1000;
+    const acceptance = new Date(user.registrationDate);
+    const earliestAdStr = mockAds
+      .map(a => a.publishDate)
+      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+    const adStart = earliestAdStr ? new Date(earliestAdStr) : acceptance;
+    const start = adStart.getTime() > acceptance.getTime() ? adStart : acceptance;
+    const end = new Date(expiryDate);
+    const now = new Date();
+    const totalDays = Math.ceil((end.getTime() - start.getTime()) / dayMs);
+    const elapsedDays = Math.floor((now.getTime() - start.getTime()) / dayMs);
+    const remaining = totalDays - elapsedDays;
+    return remaining > 0 ? remaining : 0;
+  };
+
+  // Ticker to update countdown periodically
+  const [countdownTick, setCountdownTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setCountdownTick(t => t + 1), 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const handleViewProfile = (user: User) => {
     setSelectedUser(user);
     setShowUserProfile(true);
+  };
+
+  const enableEdit = () => {
+    if (!selectedUser) return;
+    setIsEditing(true);
+    setEditForm({ ...selectedUser });
+  };
+
+  const saveEdit = () => {
+    if (!selectedUser || !editForm) return;
+    const updated = { ...selectedUser, ...editForm } as User;
+    setUsers(prev => prev.map(u => (u.id === selectedUser.id ? updated : u)));
+    setSelectedUser(updated);
+    setIsEditing(false);
+    setEditForm(null);
+    showToast('تم حفظ التعديلات بنجاح', 'success');
   };
 
   const handleResetPassword = (userId: string) => {
@@ -341,41 +616,156 @@ export default function UsersPage() {
 
           <div className="tab-content">
             {activeTab === 'data' && (
-              <div className="user-data-tab">
+              <div className={`user-data-tab ${isEditing ? 'edit-mode' : ''}`}>
+                <div className="tab-actions">
+                  {!isEditing ? (
+                    <button className="btn-edit" onClick={enableEdit}>
+                      تفعيل التعديل
+                    </button>
+                  ) : (
+                    <button className="btn-save" onClick={saveEdit}>
+                      حفظ التعديلات
+                    </button>
+                  )}
+                </div>
                 <div className="data-grid">
-                  <div className="data-item">
-                    <label>الاسم الكامل:</label>
-                    <span>{selectedUser.name}</span>
-                  </div>
+              <div className="data-item">
+                <label>الاسم الكامل:</label>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editForm?.name ?? ''}
+                    onChange={(e) =>
+                      setEditForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))
+                    }
+                    className="input"
+                  />
+                ) : (
+                  <span>
+                    {selectedUser.name}
+                    {selectedUser.phoneVerified && (
+                      <span className="verified-badge" title="موثّق" style={{ marginRight: 8 }}>
+                        ✓
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
                   <div className="data-item">
                     <label>رقم الهاتف:</label>
-                    <span>{selectedUser.phone}</span>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editForm?.phone ?? ''}
+                        onChange={(e) =>
+                          setEditForm((prev) => (prev ? { ...prev, phone: e.target.value } : prev))
+                        }
+                        className="input"
+                      />
+                    ) : (
+                      <span>{selectedUser.phone}</span>
+                    )}
                   </div>
                   <div className="data-item">
                     <label>كود المستخدم:</label>
-                    <span>{selectedUser.userCode}</span>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editForm?.userCode ?? ''}
+                        onChange={(e) =>
+                          setEditForm((prev) => (prev ? { ...prev, userCode: e.target.value } : prev))
+                        }
+                        className="input"
+                      />
+                    ) : (
+                      <span>{selectedUser.userCode}</span>
+                    )}
                   </div>
                   <div className="data-item">
                     <label>الحالة:</label>
-                    <span className={`status-badge ${selectedUser.status}`}>
-                      {selectedUser.status === 'active' ? 'نشط' : 'محظور'}
-                    </span>
+                    {isEditing ? (
+                      <select
+                        value={editForm?.status ?? 'active'}
+                        onChange={(e) =>
+                          setEditForm((prev) =>
+                            prev ? { ...prev, status: e.target.value as User['status'] } : prev
+                          )
+                        }
+                        className="input"
+                      >
+                        <option value="active">نشط</option>
+                        <option value="banned">محظور</option>
+                      </select>
+                    ) : (
+                      <span className={`status-badge ${selectedUser.status}`}>
+                        {selectedUser.status === 'active' ? 'نشط' : 'محظور'}
+                      </span>
+                    )}
                   </div>
                   <div className="data-item">
                     <label>تاريخ التسجيل:</label>
-                    <span>{selectedUser.registrationDate}</span>
+                    {isEditing ? (
+                      <input
+                        type="date"
+                        value={editForm?.registrationDate ?? ''}
+                        onChange={(e) =>
+                          setEditForm((prev) =>
+                            prev ? { ...prev, registrationDate: e.target.value } : prev
+                          )
+                        }
+                        className="input"
+                      />
+                    ) : (
+                      <span>{selectedUser.registrationDate}</span>
+                    )}
                   </div>
                   <div className="data-item">
                     <label>آخر تسجيل دخول:</label>
-                    <span>{selectedUser.lastLogin}</span>
+                    {isEditing ? (
+                      <input
+                        type="date"
+                        value={editForm?.lastLogin ?? ''}
+                        onChange={(e) =>
+                          setEditForm((prev) => (prev ? { ...prev, lastLogin: e.target.value } : prev))
+                        }
+                        className="input"
+                      />
+                    ) : (
+                      <span>{selectedUser.lastLogin}</span>
+                    )}
                   </div>
                   <div className="data-item">
                     <label>الدور:</label>
-                    <span>{selectedUser.role}</span>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editForm?.role ?? ''}
+                        onChange={(e) =>
+                          setEditForm((prev) => (prev ? { ...prev, role: e.target.value } : prev))
+                        }
+                        className="input"
+                      />
+                    ) : (
+                      <span>{selectedUser.role}</span>
+                    )}
                   </div>
                   <div className="data-item">
                     <label>عدد الإعلانات:</label>
-                    <span>{selectedUser.adsCount}</span>
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        min={0}
+                        value={editForm?.adsCount ?? 0}
+                        onChange={(e) =>
+                          setEditForm((prev) =>
+                            prev ? { ...prev, adsCount: Number(e.target.value) } : prev
+                          )
+                        }
+                        className="input"
+                      />
+                    ) : (
+                      <span>{selectedUser.adsCount}</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -505,19 +895,216 @@ export default function UsersPage() {
 
   return (
     <div className="users-page">
+      {/* Add User Modal */}
+      {isAddModalOpen && (
+        <div className="modal-overlay" onClick={closeAddUserModal}>
+          <div className="add-user-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>إضافة مستخدم جديد</h3>
+              <button className="modal-close" onClick={closeAddUserModal}>✕</button>
+            </div>
+            <div className="modal-content">
+              <div className="edit-form">
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>الاسم الكامل</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newUserForm.name}
+                      onChange={(e) => handleNewUserChange('name', e.target.value)}
+                      placeholder="اسم المستخدم"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>رقم الهاتف</label>
+                    <input
+                      type="tel"
+                      className="form-input"
+                      value={newUserForm.phone}
+                      onChange={(e) => handleNewUserChange('phone', e.target.value)}
+                      placeholder="+20 1XX XXX XXXX"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>الدور</label>
+                    <select
+                      className="form-select"
+                      value={newUserForm.role}
+                      onChange={(e) => handleNewUserChange('role', e.target.value)}
+                    >
+                      <option value="معلن">معلن</option>
+                      <option value="مستخدم">مستخدم</option>
+                      <option value="مشرف">مشرف</option>
+                      <option value="مراجع">مراجع</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>الحالة</label>
+                    <select
+                      className="form-select"
+                      value={newUserForm.status}
+                      onChange={(e) => handleNewUserChange('status', e.target.value)}
+                    >
+                      <option value="active">نشط</option>
+                      <option value="banned">محظور</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>تاريخ التسجيل</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={newUserForm.registrationDate}
+                      onChange={(e) => handleNewUserChange('registrationDate', e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>آخر تسجيل دخول</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={newUserForm.lastLogin}
+                      onChange={(e) => handleNewUserChange('lastLogin', e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>عدد الإعلانات</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="form-input"
+                      value={newUserForm.adsCount}
+                      onChange={(e) => handleNewUserChange('adsCount', Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-cancel" onClick={closeAddUserModal}>إلغاء</button>
+              <button className="btn-save-user" onClick={saveNewUser}>حفظ</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Packages Modal */}
+      {isPackagesModalOpen && selectedUserForPackages && (
+        <div className="modal-overlay" onClick={closePackagesModal}>
+          <div className="packages-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>إدارة باقات المستخدم</h3>
+              <button className="modal-close" onClick={closePackagesModal}>✕</button>
+            </div>
+            <div className="modal-content">
+              <div className="inline-fields">
+                <div className="field">
+                  <label>الباقة</label>
+                  <select
+                    className="form-select"
+                    value={packagesForm.plan}
+                    onChange={(e) => handlePackagesChange('plan', e.target.value as UserPackage['plan'])}
+                  >
+                    <option value="متميز">متميز</option>
+                    <option value="ستاندر">ستاندر</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>عدد الإعلانات</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    min={0}
+                    value={packagesForm.adsCount}
+                    onChange={(e) => handlePackagesChange('adsCount', Number(e.target.value))}
+                  />
+                </div>
+                <div className="field expiry">
+                  <label>تاريخ انتهاء الصلاحية</label>
+                  <div className="input-with-days">
+                    <input
+                      type="date"
+                      className="form-input has-days"
+                      value={packagesForm.expiryDate}
+                      onChange={(e) => handlePackagesChange('expiryDate', e.target.value)}
+                    />
+                    <div className="days-inside">متبقي: {getRemainingDays(selectedUserForPackages, packagesForm.expiryDate)} يوم</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-cancel" onClick={closePackagesModal}>إلغاء</button>
+              <button className="btn-save-package" onClick={savePackages}>حفظ الباقة</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Verify Modal */}
+      {isVerifyModalOpen && userForVerify && (
+        <div className="modal-overlay" onClick={closeVerifyModal}>
+          <div className="verify-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>كود التحقق</h3>
+              <button className="modal-close" onClick={closeVerifyModal}>✕</button>
+            </div>
+            <div className="modal-content">
+              <div className="code-row">
+                <div className="code-display" title="اضغط للنسخ" onClick={copyVerificationCode}>{verificationCode}</div>
+                <button className="copy-icon" onClick={copyVerificationCode} title="نسخ الكود">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="9" y="9" width="11" height="11" rx="2" ry="2" stroke="white" strokeWidth="2"/>
+                    <rect x="4" y="4" width="11" height="11" rx="2" ry="2" stroke="white" strokeWidth="2"/>
+                  </svg>
+                </button>
+                <button className="whatsapp-icon" onClick={() => openWhatsAppWithCode(userForVerify)} title="إرسال عبر واتساب">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M16.8 15.2c-.4.2-1 .4-1.5.2-.3-.1-.7-.2-1.1-.5-.6-.3-1.2-.8-1.7-1.4-.5-.5-.9-1.1-1.1-1.6-.2-.4-.3-.8-.2-1.1.1-.6.7-.9 1.1-1.1l.3-.2c.1-.1.2-.1.3 0 .1.1.7.9.8 1 .1.1.1.2 0 .3l-.3.4c-.1.1-.1.2 0 .4.2.3.5.7.8 1 .3.3.7.6 1 .8.1.1.3.1.4 0l.4-.3c.1-.1.2-.1.3 0 .1.1.9.7 1 .8.1.1.1.2 0 .3l-.1.2c-.2.4-.6.9-1.2 1.1z" fill="white"/>
+                    <path d="M20 12a8 8 0 1 0-14.6 4.8L4 21l4.3-1.3A8 8 0 0 0 20 12z" stroke="white" strokeWidth="2" fill="none"/>
+                  </svg>
+                </button>
+              </div>
+              <p className="verify-helper">يمكنك نسخ الكود وإرساله للمستخدم عبر الواتساب.</p>
+            </div>
+            <div className="modal-footer">
+              {/* <button className="btn-cancel" onClick={closeVerifyModal}>إغلاق</button> */}
+          {/*    <button className="btn-verify-done" onClick={() => { if (userForVerify) handleVerifyPhone(userForVerify.id); closeVerifyModal(); }}>تم التحقق</button>*/}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Toast Container */}
       <div className="toast-container">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast toast-${toast.type}`}>
+          <div key={toast.id} className={`toast ${toast.type}`}>
             <div className="toast-content">
               <span className="toast-message">{toast.message}</span>
-              <button 
-                className="toast-close"
-                onClick={() => removeToast(toast.id)}
-              >
-                ×
-              </button>
+              {toast.actions && toast.actions.length > 0 && (
+                <div className="toast-actions">
+                  {toast.actions.map((action, idx) => (
+                    <button
+                      key={idx}
+                      className={`toast-action ${action.variant ?? 'primary'}`}
+                      onClick={() => {
+                        action.onClick?.();
+                        removeToast(toast.id);
+                      }}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
+            <button
+              className="toast-close"
+              onClick={() => removeToast(toast.id)}
+              aria-label="إغلاق"
+            >
+              ×
+            </button>
           </div>
         ))}
       </div>
@@ -557,6 +1144,12 @@ export default function UsersPage() {
         <div className="users-table-container desktop-view">
           <div className="table-actions">
             <button
+              className="btn-add-user"
+              onClick={openAddUserModal}
+            >
+              ➕ إضافة مستخدم
+            </button>
+            <button
               className="btn-export-table excel"
               onClick={() => exportToExcel(filteredUsers, 'users-export')}
             >
@@ -579,8 +1172,29 @@ export default function UsersPage() {
             <tbody>
               {currentUsers.map((user) => (
                 <tr key={user.id}>
-                  <td className="user-name">{user.name}</td>
-                  <td className="user-phone">{user.phone}</td>
+                  <td className="user-name">
+                    {user.name}
+                    {user.phoneVerified && (
+                      <span className="verified-badge" title="موثّق" style={{ marginRight: 6 }}>
+                        ✓
+                      </span>
+                    )}
+                  </td>
+                  <td className="user-phone">
+                    <div className="phone-with-whatsapp">
+                      <span>{user.phone}</span>
+                      <button
+                        className="whatsapp-icon"
+                        onClick={() => openWhatsAppWithCode(user)}
+                        title="فتح واتساب وإدراج الكود"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M16.8 15.2c-.4.2-1 .4-1.5.2-.3-.1-.7-.2-1.1-.5-.6-.3-1.2-.8-1.7-1.4-.5-.5-.9-1.1-1.1-1.6-.2-.4-.3-.8-.2-1.1.1-.6.7-.9 1.1-1.1l.3-.2c.1-.1.2-.1.3 0 .1.1.7.9.8 1 .1.1.1.2 0 .3l-.3.4c-.1.1-.1.2 0 .4.2.3.5.7.8 1 .3.3.7.6 1 .8.1.1.3.1.4 0l.4-.3c.1-.1.2-.1.3 0 .1.1.9.7 1 .8.1.1.1.2 0 .3l-.1.2c-.2.4-.6.9-1.2 1.1z" fill="white"/>
+                          <path d="M20 12a8 8 0 1 0-14.6 4.8L4 21l4.3-1.3A8 8 0 0 0 20 12z" stroke="white" strokeWidth="2" fill="none"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
                   <td className="user-code">{user.userCode}</td>
                   <td>
                     <span className={`status-badge ${user.status}`}>
@@ -646,6 +1260,38 @@ export default function UsersPage() {
                           <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="white" strokeWidth="2"/>
                         </svg>
                       </button>
+                      <button
+                        className="btn-verify-phone"
+                        onClick={() => openVerifyModal(user)}
+                        title="عرض كود التحقق"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="2"/>
+                          <path d="M8 12l2.5 2.5L16 9" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </button>
+                      <button
+                        className="btn-packages"
+                        onClick={() => openPackagesModal(user)}
+                        title="الباقات"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M3 7l9-4 9 4-9 4-9-4z" stroke="white" strokeWidth="2"/>
+                          <path d="M3 12l9 4 9-4" stroke="white" strokeWidth="2"/>
+                          <path d="M3 12v5l9 4 9-4v-5" stroke="white" strokeWidth="2"/>
+                        </svg>
+                      </button>
+                      <button
+                        className="btn-delete-user"
+                        onClick={() => handleDeleteUser(user.id)}
+                        title="حذف المستخدم"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M3 6h18" stroke="white" strokeWidth="2"/>
+                          <path d="M8 6V4h8v2" stroke="white" strokeWidth="2"/>
+                          <path d="M6 6l1 14h10l1-14" stroke="white" strokeWidth="2"/>
+                        </svg>
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -660,7 +1306,14 @@ export default function UsersPage() {
             <div key={user.id} className="user-card">
               <div className="card-header">
                 <div className="user-info">
-                  <h3 className="user-name">{user.name}</h3>
+                  <h3 className="user-name">
+                    {user.name}
+                    {user.phoneVerified && (
+                      <span className="verified-badge" title="موثّق" style={{ marginRight: 6 }}>
+                        ✓
+                      </span>
+                    )}
+                  </h3>
                   <span className="user-code">{user.userCode}</span>
                 </div>
                 <span className={`status-badge ${user.status}`}>
@@ -672,7 +1325,19 @@ export default function UsersPage() {
                 <div className="info-grid">
                   <div className="info-item">
                     <span className="info-label">رقم الهاتف:</span>
-                    <span className="info-value">{user.phone}</span>
+                    <span className="info-value phone-with-whatsapp">
+                      {user.phone}
+                      <button
+                        className="whatsapp-icon"
+                        onClick={() => openWhatsAppWithCode(user)}
+                        title="فتح واتساب وإدراج الكود"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M16.8 15.2c-.4.2-1 .4-1.5.2-.3-.1-.7-.2-1.1-.5-.6-.3-1.2-.8-1.7-1.4-.5-.5-.9-1.1-1.1-1.6-.2-.4-.3-.8-.2-1.1.1-.6.7-.9 1.1-1.1l.3-.2c.1-.1.2-.1.3 0 .1.1.7.9.8 1 .1.1.1.2 0 .3l-.3.4c-.1.1-.1.2 0 .4.2.3.5.7.8 1 .3.3.7.6 1 .8.1.1.3.1.4 0l.4-.3c.1-.1.2-.1.3 0 .1.1.9.7 1 .8.1.1.1.2 0 .3l-.1.2c-.2.4-.6.9-1.2 1.1z" fill="white"/>
+                          <path d="M20 12a8 8 0 1 0-14.6 4.8L4 21l4.3-1.3A8 8 0 0 0 20 12z" stroke="white" strokeWidth="2" fill="none"/>
+                        </svg>
+                      </button>
+                    </span>
                   </div>
                   <div className="info-item">
                     <span className="info-label">الدور:</span>
@@ -724,6 +1389,27 @@ export default function UsersPage() {
                   title="تعيين PIN"
                 >
                   تعيين PIN
+                </button>
+                <button
+                  className="btn-verify-phone"
+                  onClick={() => openVerifyModal(user)}
+                  title="عرض كود التحقق"
+                >
+                  توثيق
+                </button>
+                <button
+                  className="btn-packages"
+                  onClick={() => openPackagesModal(user)}
+                  title="الباقات"
+                >
+                  الباقات
+                </button>
+                <button
+                  className="btn-delete-user"
+                  onClick={() => handleDeleteUser(user.id)}
+                  title="حذف المستخدم"
+                >
+                  حذف
                 </button>
               </div>
             </div>

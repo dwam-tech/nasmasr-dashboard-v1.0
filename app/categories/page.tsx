@@ -9,7 +9,8 @@ interface Category {
   icon: string;
   status: 'active' | 'disabled';
   order: number;
-  customFields: { [key: string]: string };
+  // يدعم إما قيمة نوع بسيطة أو كائن مع خيارات للحقل
+  customFields: { [key: string]: string | { type: string; options?: string[] } };
   showOnHomepage: boolean;
   homepageImage?: string;
   cardsCount?: number;
@@ -61,6 +62,10 @@ export default function CategoriesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
 
+  // حالة محرر خيارات الحقل
+  const [fieldOptionsEditor, setFieldOptionsEditor] = useState<{ categoryId: number; fieldName: string } | null>(null);
+  const [tempOptions, setTempOptions] = useState<string[]>([]);
+
   const filteredCategories = categories.filter(cat => {
     const matchesSearch = cat.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === '' || cat.status === statusFilter;
@@ -85,6 +90,64 @@ export default function CategoriesPage() {
     }
   };
 
+  // فتح نافذة إدارة خيارات الحقل
+  const openFieldOptions = (categoryId: number, fieldName: string) => {
+    const cat = categories.find(c => c.id === categoryId);
+    if (!cat) return;
+    const raw = cat.customFields[fieldName];
+    const meta = typeof raw === 'string' ? { type: raw } : raw;
+    setTempOptions([...(meta.options || [])]);
+    setFieldOptionsEditor({ categoryId, fieldName });
+  };
+
+  const handleOptionUpdate = (index: number, value: string) => {
+    setTempOptions(prev => prev.map((opt, i) => (i === index ? value : opt)));
+  };
+
+  const addOptionRow = () => {
+    setTempOptions(prev => [...prev, '']);
+  };
+
+  const removeOptionRow = (index: number) => {
+    setTempOptions(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const saveFieldOptions = () => {
+    if (!fieldOptionsEditor) return;
+    const { categoryId, fieldName } = fieldOptionsEditor;
+    setCategories(prev => prev.map(cat => {
+      if (cat.id !== categoryId) return cat;
+      const raw = cat.customFields[fieldName];
+      const meta = typeof raw === 'string' ? { type: raw } : raw;
+      // حفظ فقط للحقول من نوع select
+      if (meta.type !== 'select') {
+        return cat;
+      }
+      const cleaned = tempOptions.map(o => o.trim()).filter(o => o.length > 0);
+      const newCustomFields = {
+        ...cat.customFields,
+        [fieldName]: { type: 'select', options: cleaned },
+      };
+      return { ...cat, customFields: newCustomFields };
+    }));
+    setFieldOptionsEditor(null);
+  };
+
+  const closeFieldOptions = () => setFieldOptionsEditor(null);
+
+  // معلومات مساعدة لعرض النافذة
+  const currentFieldMeta = fieldOptionsEditor
+    ? (() => {
+        const cat = categories.find(c => c.id === fieldOptionsEditor.categoryId);
+        if (!cat) return null as null | { type: string; options?: string[] };
+        const raw = cat.customFields[fieldOptionsEditor.fieldName];
+        return typeof raw === 'string' ? { type: raw } : raw;
+      })()
+    : null;
+  const currentCategoryName = fieldOptionsEditor
+    ? categories.find(c => c.id === fieldOptionsEditor.categoryId)?.name || ''
+    : '';
+
   return (
     <div className="categories-page">
       {/* Header */}
@@ -95,13 +158,13 @@ export default function CategoriesPage() {
             <p className="page-description">إدارة أقسام الموقع والتحكم في الظهور على الواجهة الرئيسية</p>
           </div>
           <div className="header-actions">
-            <button 
+            {/* <button 
               className="btn-add-category"
               onClick={() => setShowAddModal(true)}
             >
               <span className="btn-icon">➕</span>
               إضافة قسم جديد
-            </button>
+            </button> */}
           </div>
         </div>
       </div>
@@ -147,7 +210,7 @@ export default function CategoriesPage() {
             </svg>
           </div>
         </div>
-        <div className="filter-actions">
+        {/* <div className="filter-actions">
           <select 
             className="filter-select"
             value={statusFilter}
@@ -167,7 +230,7 @@ export default function CategoriesPage() {
           >
             🔄 إعادة تعيين
           </button>
-        </div>
+        </div> */}
       </div>
 
       {/* Content based on active tab */}
@@ -204,11 +267,20 @@ export default function CategoriesPage() {
                     <div className="category-fields">
                       <h4>الحقول المخصصة:</h4>
                       <div className="fields-list">
-                        {Object.entries(category.customFields).map(([field, type]) => (
-                          <span key={field} className="field-tag">
-                            {field} ({type})
-                          </span>
-                        ))}
+                        {Object.entries(category.customFields).map(([field, raw]) => {
+                          const meta = typeof raw === 'string' ? { type: raw } : raw;
+                          return (
+                            <button
+                              key={field}
+                              className="field-tag clickable"
+                              onClick={() => openFieldOptions(category.id, field)}
+                              title="إدارة خيارات هذا الحقل"
+                              type="button"
+                            >
+                              {field} ({meta.type}) <span className="tag-action">⚙️</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -220,7 +292,7 @@ export default function CategoriesPage() {
                     >
                        تعديل
                     </button>
-                    <button 
+                    {/* <button 
                       className={`btn-toggle ${category.status}`}
                       onClick={() => handleStatusToggle(category.id)}
                     >
@@ -231,7 +303,7 @@ export default function CategoriesPage() {
                       onClick={() => handleDelete(category.id)}
                     >
                        حذف
-                    </button>
+                    </button> */}
                   </div>
                 </div>
               ))
@@ -294,7 +366,7 @@ export default function CategoriesPage() {
 
                     <div className="homepage-controls">
                       <div className="control-group">
-                        <label>عدد الكروت المعروضة:</label>
+                        <label>عدد المعلنين المفضلين :</label>
                         <input 
                           type="number" 
                           min="1" 
@@ -362,6 +434,61 @@ export default function CategoriesPage() {
         </div>
       )}
 
+      {/* Field Options Modal */}
+      {fieldOptionsEditor && (
+        <div className="modal-overlay field-options-overlay">
+          <div className="modal-content field-options-modal">
+            <div className="modal-header">
+              <h2>
+                إدارة خيارات الحقل: {fieldOptionsEditor.fieldName}
+                {currentCategoryName ? ` — ${currentCategoryName}` : ''}
+              </h2>
+              <button className="modal-close" onClick={closeFieldOptions}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="options-editor">
+                <div className="options-list">
+                  {tempOptions.length === 0 && (
+                    <div className="empty-options">لا توجد خيارات بعد — أضف أول خيار.</div>
+                  )}
+                  {tempOptions.map((opt, i) => (
+                    <div key={i} className="option-row">
+                      <input
+                        type="text"
+                        className="option-input"
+                        value={opt}
+                        placeholder={`خيار ${i + 1}`}
+                        onChange={(e) => handleOptionUpdate(i, e.target.value)}
+                      />
+                      <button className="option-delete" type="button" onClick={() => removeOptionRow(i)}>
+                        حذف
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="options-actions">
+                  <button className="btn-add-option" type="button" onClick={addOptionRow}>
+                    ➕ إضافة خيار
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn-save-options"
+                type="button"
+                onClick={saveFieldOptions}
+                disabled={!currentFieldMeta}
+              >
+                💾 حفظ الخيارات
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add/Edit Modal */}
       {(showAddModal || editingCategory) && (
         <div className="modal-overlay">
@@ -420,7 +547,7 @@ export default function CategoriesPage() {
                   />
                 </div>
 
-                <div className="form-group">
+                {/* <div className="form-group">
                   <label>الحقول المخصصة</label>
                   <div className="custom-fields">
                     <div className="field-item">
@@ -435,7 +562,7 @@ export default function CategoriesPage() {
                     </div>
                     <button type="button" className="btn-add-field">➕ إضافة حقل</button>
                   </div>
-                </div>
+                </div> */}
 
                 <div className="form-group">
                   <label>صور القسم</label>
