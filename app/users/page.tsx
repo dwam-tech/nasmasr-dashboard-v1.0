@@ -457,30 +457,72 @@ export default function UsersPage() {
 
   const handleChangePassword = (userId: string) => {
     const user = users.find(u => u.id === userId);
-    const newPassword = Math.random().toString(36).slice(-8); // Generate random password
-    
-    // Update user data (in real app, this would be an API call)
-    setUsers(users.map(u => 
-      u.id === userId 
+    if (!user) {
+      showToast('تعذر العثور على المستخدم', 'error');
+      return;
+    }
+
+    const newPassword = '123456789';
+
+    setUsers(users.map(u =>
+      u.id === userId
         ? { ...u, lastLogin: new Date().toISOString().split('T')[0] }
         : u
     ));
-    
-    showToast(`تم تغيير كلمة السر للمستخدم ${user?.name} بنجاح. كلمة السر الجديدة: ${newPassword}`, 'success');
+
+    const phoneNormalized = user.phone.replace(/[^+\d]/g, '').replace('+', '');
+    if (!phoneNormalized) {
+      showToast('رقم هاتف المستخدم غير صالح لإرسال واتساب', 'warning');
+      return;
+    }
+
+    const message = encodeURIComponent(
+      `مرحبًا ${user.name}، تم تغيير كلمة السر الخاصة بحسابك إلى: ${newPassword}.\nيرجى تسجيل الدخول وتغييرها بعد أول دخول.\nفريق ناس مصر`
+    );
+    const waUrl = `https://wa.me/${phoneNormalized}?text=${message}`;
+
+    try {
+      window.open(waUrl, '_blank');
+      showToast(`تم تغيير كلمة السر وإرسالها عبر واتساب للمستخدم ${user.name}`, 'success');
+    } catch (e) {
+      showToast('تم تغيير كلمة السر، لكن تعذر فتح واتساب', 'warning');
+    }
   };
 
   const handleSetPIN = (userId: string) => {
     const user = users.find(u => u.id === userId);
-    const newPIN = Math.floor(100000 + Math.random() * 900000).toString(); // Generate 6-digit PIN
-    
-    // Update user data (in real app, this would be an API call)
-    setUsers(users.map(u => 
-      u.id === userId 
+    if (!user) {
+      showToast('تعذر العثور على المستخدم', 'error');
+      return;
+    }
+
+    const newPassword = '123456789';
+
+    // تحديث بيانات المستخدم (في التطبيق الحقيقي سيكون عبر API)
+    setUsers(users.map(u =>
+      u.id === userId
         ? { ...u, lastLogin: new Date().toISOString().split('T')[0] }
         : u
     ));
-    
-    showToast(`تم تعيين الرقم السري للمستخدم ${user?.name} بنجاح. الرقم السري الجديد: ${newPIN}`, 'success');
+
+    // إرسال كلمة السر للمستخدم عبر واتساب
+    const phoneNormalized = user.phone.replace(/[^+\d]/g, '').replace('+', '');
+    if (!phoneNormalized) {
+      showToast('رقم هاتف المستخدم غير صالح لإرسال واتساب', 'warning');
+      return;
+    }
+
+    const message = encodeURIComponent(
+      `مرحبًا ${user.name}، تم تغيير كلمة السر الخاصة بحسابك إلى: ${newPassword}.\nيرجى تسجيل الدخول وتغييرها بعد أول دخول.\nفريق ناس مصر`
+    );
+    const waUrl = `https://wa.me/${phoneNormalized}?text=${message}`;
+
+    try {
+      window.open(waUrl, '_blank');
+      showToast(`تم تغيير كلمة السر وإرسالها عبر واتساب للمستخدم ${user.name}`, 'success');
+    } catch (e) {
+      showToast('تم تغيير كلمة السر، لكن تعذر فتح واتساب', 'warning');
+    }
   };
 
   // Pagination functions
@@ -600,6 +642,7 @@ export default function UsersPage() {
             >
               المعاملات
             </button>
+            {/*}
             <button 
               className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`}
               onClick={() => setActiveTab('logs')}
@@ -611,7 +654,7 @@ export default function UsersPage() {
               onClick={() => setActiveTab('permissions')}
             >
               الأذونات
-            </button>
+            </button>*/}
           </div>
 
           <div className="tab-content">
@@ -1230,7 +1273,7 @@ export default function UsersPage() {
                           </svg>
                         )}
                       </button>
-                      <button
+                      {/* <button
                         className="btn-reset-password"
                         onClick={() => handleResetPassword(user.id)}
                         title="إعادة تعيين كلمة السر"
@@ -1241,7 +1284,7 @@ export default function UsersPage() {
                           <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                           <path d="M8 16H3v5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
-                      </button>
+                      </button> */}
                       {/* <button
                         className="btn-change-password"
                         onClick={() => handleChangePassword(user.id)}
@@ -1369,13 +1412,13 @@ export default function UsersPage() {
                 >
                   {user.status === 'active' ? 'حظر' : 'إلغاء الحظر'}
                 </button>
-                <button
+                {/* <button
                   className="btn-reset-password"
                   onClick={() => handleResetPassword(user.id)}
                   title="إعادة تعيين كلمة السر"
                 >
                   إعادة تعيين
-                </button>
+                </button> */}
                 <button
                   className="btn-change-password"
                   onClick={() => handleChangePassword(user.id)}
@@ -1383,13 +1426,13 @@ export default function UsersPage() {
                 >
                   تغيير كلمة السر
                 </button>
-                <button
+                {/* <button
                   className="btn-set-pin"
                   onClick={() => handleSetPIN(user.id)}
                   title="تعيين PIN"
                 >
                   تعيين PIN
-                </button>
+                </button> */}
                 <button
                   className="btn-verify-phone"
                   onClick={() => openVerifyModal(user)}

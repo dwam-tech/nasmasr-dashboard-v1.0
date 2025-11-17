@@ -5,6 +5,7 @@ import "./globals.css";
 import Header from "../components/Header";
 import Sidebar from "../components/Sidebar";
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -22,6 +23,8 @@ interface RootLayoutProps {
 
 export default function RootLayout({ children }: RootLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
+  const isLanding = pathname === "/";
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
@@ -41,11 +44,15 @@ export default function RootLayout({ children }: RootLayoutProps) {
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        <div className="dashboard-layout">
-          <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />
-          <Header onToggleSidebar={toggleSidebar} />
+        {isLanding ? (
           <main className="content">{children}</main>
-        </div>
+        ) : (
+          <div className="dashboard-layout">
+            <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />
+            <Header onToggleSidebar={toggleSidebar} />
+            <main className="content">{children}</main>
+          </div>
+        )}
       </body>
     </html>
   );

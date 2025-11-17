@@ -3,67 +3,89 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { login as loginService, AuthResponse, AuthError } from '@/services/auth';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [generalErrors, setGeneralErrors] = useState<string[]>([]);
+  const [phoneErrors, setPhoneErrors] = useState<string[]>([]);
+  const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
   const [rememberMe, setRememberMe] = useState(false);
   const router = useRouter();
 
-  // Demo credentials for testing
-  const DEMO_EMAIL = 'admin@nas-masr.com';
-  const DEMO_PASSWORD = 'admin123';
+  
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setGeneralErrors([]);
+    setPhoneErrors([]);
+    setPasswordErrors([]);
     setIsLoading(true);
 
-    // Basic validation
-    if (!email || !password) {
-      setError('يرجى إدخال البريد الإلكتروني وكلمة المرور');
+    const validationErrors: { phone?: string; password?: string } = {};
+    if (!phone) validationErrors.phone = 'يرجى إدخال رقم الهاتف';
+    if (!password) validationErrors.password = 'يرجى إدخال كلمة المرور';
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (phone && (phoneDigits.length !== 11 || !phoneDigits.startsWith('01'))) {
+      validationErrors.phone = 'رقم الهاتف غير صحيح (صيغة مصرية: 01XXXXXXXXX)';
+    }
+    if (password && password.length < 6) {
+      validationErrors.password = 'كلمة المرور يجب أن تكون 6 أحرف على الأقل';
+    }
+    if (validationErrors.phone || validationErrors.password) {
+      if (validationErrors.phone) setPhoneErrors([validationErrors.phone]);
+      if (validationErrors.password) setPasswordErrors([validationErrors.password]);
       setIsLoading(false);
       return;
     }
 
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      setError('يرجى إدخال بريد إلكتروني صحيح');
-      setIsLoading(false);
-      return;
-    }
-
-    // Password validation
-    if (password.length < 6) {
-      setError('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
-      setIsLoading(false);
-      return;
-    }
+    
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      // Check demo credentials
-      if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
-        // Store authentication state
-        localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('userEmail', email);
-        if (rememberMe) {
-          localStorage.setItem('rememberMe', 'true');
-        }
-        
-        // Redirect to dashboard
-        router.push('/');
-      } else {
-        setError('البريد الإلكتروني أو كلمة المرور غير صحيحة');
+      const data: AuthResponse = await loginService(phone, password);
+      const tokenVal = typeof data.token === 'string' ? data.token : typeof data.access_token === 'string' ? data.access_token : null;
+      const user = data.user;
+      if (!user || typeof user.role !== 'string') {
+        setGeneralErrors(['الاستجابة غير متوقعة من الخادم']);
+        setIsLoading(false);
+        return;
       }
-    } catch (err) {
-      setError('حدث خطأ أثناء تسجيل الدخول. يرجى المحاولة مرة أخرى');
+      if (user.role.toLowerCase() !== 'admin') {
+        setGeneralErrors(['غير مسموح بدخول هذا الحساب إلى لوحة الإدارة']);
+        setIsLoading(false);
+        return;
+      }
+      if (tokenVal) {
+        localStorage.setItem('authToken', tokenVal);
+      }
+      localStorage.setItem('isAuthenticated', 'true');
+      localStorage.setItem('userPhone', user.phone);
+      localStorage.setItem('userRole', user.role);
+      if (rememberMe) {
+        localStorage.setItem('rememberMe', 'true');
+      }
+      router.push('/dashboard');
+    } catch (error: unknown) {
+      if (error instanceof AuthError) {
+        const fe = error.fieldErrors;
+        const gen: string[] = [];
+        if (error.message) gen.push(error.message);
+        if (fe) {
+          const p = fe['phone'];
+          const pw = fe['password'];
+          if (Array.isArray(p)) setPhoneErrors(p);
+          else if (typeof p === 'string') setPhoneErrors([p]);
+          if (Array.isArray(pw)) setPasswordErrors(pw);
+          else if (typeof pw === 'string') setPasswordErrors([pw]);
+        }
+        setGeneralErrors(gen);
+      } else {
+        const message = error instanceof Error ? error.message : 'حدث خطأ أثناء تسجيل الدخول. يرجى المحاولة مرة أخرى';
+        setGeneralErrors([message]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -102,14 +124,18 @@ export default function LoginPage() {
 
           {/* Form Section */}
           <form onSubmit={handleSubmit} className="modern-form">
-            {error && (
+            {generalErrors.length > 0 && (
               <div className="error-alert">
                 <div className="error-icon-wrapper">
                   <svg className="error-icon" viewBox="0 0 24 24" fill="none">
                     <path d="M12 9V13M12 17H12.01M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </div>
-                <span>{error}</span>
+                <ul className="error-list">
+                  {generalErrors.map((msg, idx) => (
+                    <li key={idx}>{msg}</li>
+                  ))}
+                </ul>
               </div>
             )}
 
@@ -122,14 +148,21 @@ export default function LoginPage() {
                   </svg>
                 </div>
                 <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
                   className="modern-input"
                   placeholder=" "
                   required
                 />
-                <label className="floating-label">البريد الإلكتروني</label>
+                <label className="floating-label">رقم الهاتف</label>
+                {phoneErrors.length > 0 && (
+                  <ul className="error-list field-errors">
+                    {phoneErrors.map((msg, idx) => (
+                      <li key={idx}>{msg}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
 
@@ -168,6 +201,13 @@ export default function LoginPage() {
                     </svg>
                   )}
                 </button>
+                {passwordErrors.length > 0 && (
+                  <ul className="error-list field-errors">
+                    {passwordErrors.map((msg, idx) => (
+                      <li key={idx}>{msg}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
 
