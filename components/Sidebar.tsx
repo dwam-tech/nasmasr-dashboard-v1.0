@@ -12,7 +12,7 @@ const navItems = [
     label: "إدارة الإعلانات", 
     icon: "/file.svg",
     subItems: [
-      { href: "/ads/rules", label: "قواعد الظهور", icon: "/globe.svg" }
+      { href: "/ads/rules", label: "إدارة الباقات", icon: "/globe.svg" }
     ]
   },
   { href: "/categories", label: "الأقسام والتصنيفات", icon: "/categories.png" },

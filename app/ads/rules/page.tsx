@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 
-// Mock data for display rules
 const initialRules = {
   sideAdsPerUser: 3,
   maxFreeAdValue: 1000,
@@ -11,7 +10,8 @@ const initialRules = {
   homepageAdsPerAdvertiser: 2,
   autoApprovalThreshold: 500,
   featuredAdDuration: 30,
-  regularAdDuration: 15
+  regularAdDuration: 15,
+  freeAdDuration: 7
 };
 
 export default function DisplayRules() {
@@ -19,9 +19,61 @@ export default function DisplayRules() {
   const [isEditing, setIsEditing] = useState(false);
   const [savedMessage, setSavedMessage] = useState("");
 
+  const CATEGORY_LABELS_AR: Record<string, string> = {
+    real_estate: 'عقارات',
+    cars: 'سيارات',
+    cars_rent: 'تأجير سيارات',
+    'spare-parts': 'قطع غيار',
+    stores: 'محلات',
+    restaurants: 'مطاعم',
+    groceries: 'بقالة',
+    'food-products': 'منتجات غذائية',
+    electronics: 'إلكترونيات',
+    'home-tools': 'أدوات منزلية',
+    furniture: 'أثاث',
+    doctors: 'أطباء',
+    health: 'الصحة',
+    teachers: 'معلمون',
+    education: 'تعليم',
+    jobs: 'وظائف',
+    shipping: 'شحن',
+    'mens-clothes': 'ملابس رجالي',
+    'watches-jewelry': 'ساعات ومجوهرات',
+    'free-professions': 'مهن حرة',
+    'kids-toys': 'ألعاب أطفال',
+    gym: 'رياضة',
+    construction: 'مقاولات',
+    maintenance: 'صيانة',
+    'car-services': 'خدمات سيارات',
+    'home-services': 'خدمات منزلية',
+    'lighting-decor': 'إضاءة وديكور',
+    animals: 'حيوانات',
+    'farm-products': 'منتجات زراعية',
+    wholesale: 'جملة',
+    'production-lines': 'خطوط إنتاج',
+    'light-vehicles': 'مركبات خفيفة',
+    'heavy-transport': 'نقل ثقيل',
+    tools: 'أدوات',
+    'home-appliances': 'أجهزة منزلية',
+    missing: 'مفقودات',
+  };
+
+  type CategoryRule = { freeAdsCount: number; durationDays: number; autoApprovalValue: number };
+  const initialCategoryRules: Record<string, CategoryRule> = Object.keys(CATEGORY_LABELS_AR).reduce((acc, slug) => {
+    acc[slug] = {
+      freeAdsCount: initialRules.maxFreeAdsCount,
+      durationDays: initialRules.regularAdDuration,
+      autoApprovalValue: initialRules.autoApprovalThreshold,
+    };
+    return acc;
+  }, {} as Record<string, CategoryRule>);
+
+  const [categoryRules, setCategoryRules] = useState<Record<string, CategoryRule>>(initialCategoryRules);
+
   const handleSave = () => {
     // Here you would typically save to backend
     console.log("Saving rules:", rules);
+    console.log("Saving category rules:", categoryRules);
     setIsEditing(false);
     setSavedMessage("تم حفظ القواعد بنجاح ✅");
     setTimeout(() => setSavedMessage(""), 3000);
@@ -30,6 +82,7 @@ export default function DisplayRules() {
   const handleReset = () => {
     setRules(initialRules);
     setIsEditing(false);
+    setCategoryRules(initialCategoryRules);
   };
 
   return (
@@ -42,7 +95,7 @@ export default function DisplayRules() {
               <div className="banner-gear-icon">⚙️</div>
             </div>
             <div className="banner-text-content">
-              <h1>قواعد الظهور والعرض</h1>
+              <h1>إدارة الباقات</h1>
               <p>إدارة وتخصيص قواعد عرض الإعلانات في النظام</p>
             </div>
           </div>
@@ -75,162 +128,6 @@ export default function DisplayRules() {
 
       {/* Rules Grid */}
       <div className="rules-grid">
-        {/* Side Ads Rules */}
-        <div className="rule-card">
-          <div className="card-header">
-            <div className="card-icon">📱</div>
-            <div>
-              <h3 className="card-title">الإعلانات الجانبية</h3>
-              <p className="card-description">إعدادات عرض الإعلانات الجانبية للمستخدمين</p>
-            </div>
-          </div>
-          <div className="card-content">
-            <div className="input-group">
-              <label className="input-label">
-                <span className="label-icon">👥</span>
-                عدد الإعلانات الجانبية لكل مستخدم:
-              </label>
-              <div className="input-wrapper">
-                <input
-                  type="number"
-                  value={rules.sideAdsPerUser}
-                  onChange={(e) => setRules({...rules, sideAdsPerUser: parseInt(e.target.value)})}
-                  disabled={!isEditing}
-                  className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
-                />
-                <div className="input-suffix">إعلان</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Free Ads Rules */}
-        <div className="rule-card">
-          <div className="card-header">
-            <div className="card-icon">🆓</div>
-            <div>
-              <h3 className="card-title">الإعلانات المجانية</h3>
-              <p className="card-description">قواعد وحدود الإعلانات المجانية للمستخدمين</p>
-            </div>
-          </div>
-          <div className="card-content">
-            <div className="input-row">
-              <div className="input-group">
-                <label className="input-label">
-                  <span className="label-icon">💰</span>
-                  الحد الأقصى لقيمة الإعلان المجاني:
-                </label>
-                <div className="input-wrapper">
-                  <input
-                    type="number"
-                    value={rules.maxFreeAdValue}
-                    onChange={(e) => setRules({...rules, maxFreeAdValue: parseInt(e.target.value)})}
-                    disabled={!isEditing}
-                    className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
-                  />
-                  <div className="input-suffix">ج.م</div>
-                </div>
-              </div>
-              <div className="input-group">
-                <label className="input-label">
-                  <span className="label-icon">🔢</span>
-                  الحد الأقصى لعدد الإعلانات المجانية:
-                </label>
-                <div className="input-wrapper">
-                  <input
-                    type="number"
-                    value={rules.maxFreeAdsCount}
-                    onChange={(e) => setRules({...rules, maxFreeAdsCount: parseInt(e.target.value)})}
-                    disabled={!isEditing}
-                    className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
-                  />
-                  <div className="input-suffix">إعلان</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Homepage Display Rules */}
-        <div className="rule-card">
-          <div className="card-header">
-            <div className="card-icon">🏠</div>
-            <div>
-              <h3 className="card-title">عرض الصفحة الرئيسية</h3>
-              <p className="card-description">إعدادات عرض المعلنين والإعلانات في الصفحة الرئيسية</p>
-            </div>
-          </div>
-          <div className="card-content">
-            <div className="input-row">
-              <div className="input-group">
-                <label className="input-label">
-                  <span className="label-icon">👨‍💼</span>
-                  عدد المعلنين المعروضين:
-                </label>
-                <div className="input-wrapper">
-                  <input
-                    type="number"
-                    value={rules.homepageAdvertisersCount}
-                    onChange={(e) => setRules({...rules, homepageAdvertisersCount: parseInt(e.target.value)})}
-                    disabled={!isEditing}
-                    className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
-                  />
-                  <div className="input-suffix">معلن</div>
-                </div>
-              </div>
-              <div className="input-group">
-                <label className="input-label">
-                  <span className="label-icon">📢</span>
-                  عدد الإعلانات لكل معلن:
-                </label>
-                <div className="input-wrapper">
-                  <input
-                    type="number"
-                    value={rules.homepageAdsPerAdvertiser}
-                    onChange={(e) => setRules({...rules, homepageAdsPerAdvertiser: parseInt(e.target.value)})}
-                    disabled={!isEditing}
-                    className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
-                  />
-                  <div className="input-suffix">إعلان</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Auto Approval Rules */}
-        <div className="rule-card">
-          <div className="card-header">
-            <div className="card-icon">✅</div>
-            <div>
-              <h3 className="card-title">قواعد الموافقة التلقائية</h3>
-              <p className="card-description">إعدادات الموافقة التلقائية على الإعلانات حسب القيمة</p>
-            </div>
-          </div>
-          <div className="card-content">
-            <div className="input-group">
-              <label className="input-label">
-                <span className="label-icon">⚡</span>
-                حد الموافقة التلقائية:
-              </label>
-              <div className="input-wrapper">
-                <input
-                  type="number"
-                  value={rules.autoApprovalThreshold}
-                  onChange={(e) => setRules({...rules, autoApprovalThreshold: parseInt(e.target.value)})}
-                  disabled={!isEditing}
-                  className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
-                />
-                <div className="input-suffix">ج.م</div>
-              </div>
-              <div className="input-hint">
-                <span className="hint-icon">💡</span>
-                الإعلانات أقل من هذه القيمة تتم الموافقة عليها تلقائياً
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Duration Rules */}
         <div className="rule-card">
           <div className="card-header">
@@ -274,6 +171,101 @@ export default function DisplayRules() {
                   <div className="input-suffix">يوم</div>
                 </div>
               </div>
+              <div className="input-group">
+                <label className="input-label">
+                  <span className="label-icon">🎁</span>
+                  مدة الإعلانات المجانية:
+                </label>
+                <div className="input-wrapper">
+                  <input
+                    type="number"
+                    value={rules.freeAdDuration}
+                    onChange={(e) => setRules({...rules, freeAdDuration: parseInt(e.target.value)})}
+                    disabled={!isEditing}
+                    className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
+                  />
+                  <div className="input-suffix">يوم</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rule-card">
+          <div className="card-header">
+            <div className="card-icon">📂</div>
+            <div>
+              <h3 className="card-title">قواعد حسب القسم</h3>
+              <p className="card-description">تحديد عدد الإعلانات المجانية، مدة الأيام، وقيمة الموافقة التلقائية لكل قسم</p>
+            </div>
+          </div>
+          <div className="card-content">
+            <div className="table-container">
+              <table className="data-table category-rules-table">
+                <thead>
+                  <tr>
+                    <th>القسم</th>
+                    <th>عدد الإعلانات المجانية</th>
+                    <th>مدة الأيام</th>
+                    <th>قيمة الموافقة التلقائية</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(CATEGORY_LABELS_AR).map(([slug, label]) => (
+                    <tr key={slug}>
+                      <td>{label}</td>
+                      <td>
+                        <input
+                          type="number"
+                          min={0}
+                          value={categoryRules[slug]?.freeAdsCount ?? 0}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value) || 0;
+                            setCategoryRules(prev => ({
+                              ...prev,
+                              [slug]: { ...prev[slug], freeAdsCount: v }
+                            }));
+                          }}
+                          disabled={!isEditing}
+                          className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min={0}
+                          value={categoryRules[slug]?.durationDays ?? 0}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value) || 0;
+                            setCategoryRules(prev => ({
+                              ...prev,
+                              [slug]: { ...prev[slug], durationDays: v }
+                            }));
+                          }}
+                          disabled={!isEditing}
+                          className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min={0}
+                          value={categoryRules[slug]?.autoApprovalValue ?? 0}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value) || 0;
+                            setCategoryRules(prev => ({
+                              ...prev,
+                              [slug]: { ...prev[slug], autoApprovalValue: v }
+                            }));
+                          }}
+                          disabled={!isEditing}
+                          className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

@@ -61,6 +61,8 @@ export default function CategoriesPage() {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [selectedGovernorate, setSelectedGovernorate] = useState('');
+  const [selectedCity, setSelectedCity] = useState('');
 
   // حالة محرر خيارات الحقل
   const [fieldOptionsEditor, setFieldOptionsEditor] = useState<{ categoryId: number; fieldName: string } | null>(null);
@@ -71,6 +73,18 @@ export default function CategoriesPage() {
     const matchesStatus = statusFilter === '' || cat.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  const GOVERNORATES: Record<string, string[]> = {
+    'القاهرة': ['مدينة نصر', 'مصر الجديدة', 'المعادي', 'حلوان', 'الزيتون'],
+    'الجيزة': ['الدقي', 'العجوزة', 'الهرم', '6 أكتوبر', 'المنيب'],
+    'الإسكندرية': ['سيدي جابر', 'سموحة', 'العصافرة', 'المنتزه', 'العجمي'],
+    'الشرقية': ['الزقازيق', 'العاشر من رمضان', 'بلبيس', 'منيا القمح', 'أبو حماد'],
+    'الدقهلية': ['المنصورة', 'طلخا', 'ميت غمر', 'أجا', 'شربين'],
+    'القليوبية': ['بنها', 'قها', 'قليوب', 'العبور', 'الخانكة'],
+    'الغربية': ['طنطا', 'المحلة الكبرى', 'زفتى', 'سمنود', 'بسيون'],
+    'المنيا': ['المنيا', 'مغاغة', 'مطاي', 'أبو قرقاص', 'بني مزار'],
+  };
+  const cities = selectedGovernorate ? GOVERNORATES[selectedGovernorate] ?? [] : [];
 
   const handleStatusToggle = (id: number) => {
     setCategories(prev => prev.map(cat => 
@@ -171,20 +185,20 @@ export default function CategoriesPage() {
 
       {/* Tabs Navigation */}
       <div className="tabs-navigation">
-        <button 
+        {/* <button 
           className={`tab-btn ${activeTab === 'management' ? 'active' : ''}`}
           onClick={() => setActiveTab('management')}
         >
           <span className="tab-icon">⚙️</span>
           إدارة الأقسام
-        </button>
-        <button 
+        </button> */}
+        {/* <button 
           className={`tab-btn ${activeTab === 'homepage' ? 'active' : ''}`}
           onClick={() => setActiveTab('homepage')}
         >
           <span className="tab-icon">🏠</span>
           الظهور على الواجهة
-        </button>
+        </button> */}
       </div>
 
       {/* Search and Filters */}
@@ -244,6 +258,35 @@ export default function CategoriesPage() {
               )}
             </p>
           </div>
+          <div className="location-filter">
+            <div className="location-group">
+              <label className="location-label">المحافظة</label>
+              <select
+                className="form-select"
+                value={selectedGovernorate}
+                onChange={(e) => { setSelectedGovernorate(e.target.value); setSelectedCity(''); }}
+              >
+                <option value="">اختر المحافظة</option>
+                {Object.keys(GOVERNORATES).map(g => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
+            <div className="location-group">
+              <label className="location-label">المدينة</label>
+              <select
+                className="form-select"
+                value={selectedCity}
+                onChange={(e) => setSelectedCity(e.target.value)}
+                disabled={!selectedGovernorate}
+              >
+                <option value="">{selectedGovernorate ? 'اختر المدينة' : 'اختر المحافظة أولًا'}</option>
+                {cities.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+          </div>
           <div className="categories-grid">
             {filteredCategories.length > 0 ? (
               filteredCategories.map((category) => (
@@ -255,6 +298,21 @@ export default function CategoriesPage() {
                         <div className="category-details">
                           <h3 className="category-name">{category.name}</h3>
                           <span className="category-order">ترتيب: {category.order}</span>
+                          <label className="toggle-label">
+                            <span className="toggle-text">الظهور في الواجهة</span>
+                            <div className="toggle-switch-container">
+                              <input
+                                type="checkbox"
+                                className="toggle-input"
+                                checked={category.showOnHomepage}
+                                onChange={() => handleHomepageToggle(category.id)}
+                              />
+                              <span className="toggle-slider"></span>
+                              <span className="toggle-status">
+                                {category.showOnHomepage ? 'مفعل' : 'مخفي'}
+                              </span>
+                            </div>
+                          </label>
                         </div>
                       </div>
                       <div className="category-status">
@@ -365,7 +423,7 @@ export default function CategoriesPage() {
                     </div>
 
                     <div className="homepage-controls">
-                      <div className="control-group">
+                      {/* <div className="control-group">
                         <label>عدد المعلنين المفضلين :</label>
                         <input 
                           type="number" 
@@ -374,7 +432,7 @@ export default function CategoriesPage() {
                           value={category.cardsCount || 6}
                           className="cards-count-input"
                         />
-                      </div>
+                      </div> */}
                       
                       <div className="control-group">
                         <label>ترتيب الظهور:</label>
@@ -518,7 +576,7 @@ export default function CategoriesPage() {
                   />
                 </div>
 
-                <div className="form-group">
+                {/* <div className="form-group">
                   <label>أيقونة القسم</label>
                   <div className="icon-selector">
                     <input 
@@ -535,7 +593,7 @@ export default function CategoriesPage() {
                       ))}
                     </div>
                   </div>
-                </div>
+                </div> */}
 
                 <div className="form-group">
                   <label>ترتيب الظهور</label>

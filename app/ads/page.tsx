@@ -283,6 +283,18 @@ export default function AdsManagement() {
               </div>
             </div>
           </div>
+          <div 
+            className="stat-card clickable-card" 
+            onClick={() => window.location.href = '/ads/reports-review'}
+            style={{ cursor: 'pointer' }}
+          >
+            <div className="value-secondary">{ads.filter(ad => ad.reports > 0).length}</div>
+            <div className="label">مراجعة البلاغات
+              <div className="clickable-text" onClick={() => window.location.href = '/ads/reports-review'}>
+                اضغط للمراجعة
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
