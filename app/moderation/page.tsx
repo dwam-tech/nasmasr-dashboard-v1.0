@@ -723,6 +723,15 @@ export default function ModerationPage() {
   const [imageModalAdId, setImageModalAdId] = useState<string | null>(null);
   const [imageModalIndex, setImageModalIndex] = useState(0);
   const [editTargetAdId, setEditTargetAdId] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<{ id: number; type: 'success' | 'error' | 'info'; title: string; message?: string }[]>([]);
+  const dismissToast = (id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+  const showToast = (type: 'success' | 'error' | 'info', title: string, message?: string) => {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((prev) => [...prev, { id, type, title, message }]);
+    setTimeout(() => dismissToast(id), 4000);
+  };
 
   const handleAction = (adId: string, action: 'approve' | 'reject' | 'modify', reason?: string) => {
     const target = ads.find(a => a.id === adId);
@@ -773,9 +782,11 @@ export default function ModerationPage() {
     if (action === 'approve') {
       const extra = JSON.parse(localStorage.getItem('adsManagementFromModeration') || '[]');
       localStorage.setItem('adsManagementFromModeration', JSON.stringify([...(Array.isArray(extra) ? extra : []), toManagement(target)]));
+      showToast('success', 'تمت الموافقة على الإعلان', target.title);
     } else if (action === 'reject') {
       const extra = JSON.parse(localStorage.getItem('rejectedAdsFromModeration') || '[]');
       localStorage.setItem('rejectedAdsFromModeration', JSON.stringify([...(Array.isArray(extra) ? extra : []), toRejected(target, reason || '')]));
+      showToast('error', 'تم رفض الإعلان', reason || target.title);
     } else {
       // تعديل فقط: لا ننقل الإعلان، نحدث حالته داخل الصفحة
       setAds(prev => prev.map(ad => ad.id === adId ? { ...ad, status: 'needs_modification' } : ad));
@@ -785,6 +796,7 @@ export default function ModerationPage() {
       setShowReasonModal(false);
       setCustomReason('');
       setReasonTargetAdId(null);
+      showToast('info', 'تم وضع الإعلان بحالة يحتاج تعديل', reason || target.title);
       return;
     }
 
@@ -921,6 +933,7 @@ export default function ModerationPage() {
       } : null);
     }
     closeEditModal();
+    showToast('info', 'تم حفظ تعديلات الإعلان', editForm.title);
   };
 
   const getStatusColor = (status: string) => {
@@ -945,6 +958,18 @@ export default function ModerationPage() {
 
   return (
     <div className="moderation-container">
+      <div className="toast-container">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast toast-${t.type}`}>
+            <div className="toast-icon">{t.type === 'success' ? '✓' : t.type === 'error' ? '✗' : '✎'}</div>
+            <div className="toast-content">
+              <div className="toast-title">{t.title}</div>
+              {t.message && <div className="toast-message">{t.message}</div>}
+            </div>
+            <button className="toast-close" onClick={() => dismissToast(t.id)}>✕</button>
+          </div>
+        ))}
+      </div>
       {/* <div className="moderation-header">
         <div className="header-content">
           <div className="title-section">

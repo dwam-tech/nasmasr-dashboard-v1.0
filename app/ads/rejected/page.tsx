@@ -74,6 +74,7 @@ export default function RejectedAds() {
   const [rejectedByFilter, setRejectedByFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [codeSearch, setCodeSearch] = useState("");
 
   const [ads, setAds] = useState(mockRejectedAds);
   // دمج الإعلانات المرفوضة القادمة من صفحة المراجعة (localStorage)
@@ -93,7 +94,10 @@ export default function RejectedAds() {
     const rejectedByMatch = rejectedByFilter ? ad.rejectedBy === rejectedByFilter : true;
     const fromMatch = fromDate ? new Date(ad.creationDate) >= new Date(fromDate) : true;
     const toMatch = toDate ? new Date(ad.endDate) <= new Date(toDate) : true;
-    return sectionMatch && rejectedByMatch && fromMatch && toMatch;
+    const codeMatch = codeSearch
+      ? String(ad.advertiserCode).toLowerCase().includes(codeSearch.toLowerCase().trim())
+      : true;
+    return sectionMatch && rejectedByMatch && fromMatch && toMatch && codeMatch;
   });
 
   // Calculate pagination
@@ -270,6 +274,16 @@ export default function RejectedAds() {
             className="form-input" 
             value={toDate} 
             onChange={(e) => setToDate(e.target.value)} 
+          />
+        </div>
+        <div className="filter-item">
+          <label className="filter-label">🔎 بحث بكود المعلن</label>
+          <input
+            type="text"
+            className="form-input"
+            placeholder="مثال: USR001"
+            value={codeSearch}
+            onChange={(e) => setCodeSearch(e.target.value)}
           />
         </div>
       </div>

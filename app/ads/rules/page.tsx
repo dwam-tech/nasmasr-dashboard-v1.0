@@ -9,9 +9,8 @@ const initialRules = {
   homepageAdvertisersCount: 10,
   homepageAdsPerAdvertiser: 2,
   autoApprovalThreshold: 500,
-  featuredAdDuration: 30,
-  regularAdDuration: 15,
-  freeAdDuration: 7
+  featuredPackagePrice: 0,
+  standardPackagePrice: 0,
 };
 
 export default function DisplayRules() {
@@ -62,7 +61,7 @@ export default function DisplayRules() {
   const initialCategoryRules: Record<string, CategoryRule> = Object.keys(CATEGORY_LABELS_AR).reduce((acc, slug) => {
     acc[slug] = {
       freeAdsCount: initialRules.maxFreeAdsCount,
-      durationDays: initialRules.regularAdDuration,
+      durationDays: 0,
       autoApprovalValue: initialRules.autoApprovalThreshold,
     };
     return acc;
@@ -128,13 +127,13 @@ export default function DisplayRules() {
 
       {/* Rules Grid */}
       <div className="rules-grid">
-        {/* Duration Rules */}
+        {/* Package Prices */}
         <div className="rule-card">
           <div className="card-header">
-            <div className="card-icon">⏰</div>
+            <div className="card-icon">$</div>
             <div>
-              <h3 className="card-title">مدة الإعلانات</h3>
-              <p className="card-description">إعدادات مدة عرض الإعلانات المختلفة بالأيام</p>
+              <h3 className="card-title">سعر إعلان الباقة</h3>
+              <p className="card-description">تحديد سعر إعلان الباقة لكل نوع</p>
             </div>
           </div>
           <div className="card-content">
@@ -142,49 +141,33 @@ export default function DisplayRules() {
               <div className="input-group">
                 <label className="input-label">
                   <span className="label-icon">⭐</span>
-                  مدة الإعلانات المميزة:
+                  سعر الباقة المميزة:
                 </label>
                 <div className="input-wrapper">
                   <input
                     type="number"
-                    value={rules.featuredAdDuration}
-                    onChange={(e) => setRules({...rules, featuredAdDuration: parseInt(e.target.value)})}
+                    value={rules.featuredPackagePrice}
+                    onChange={(e) => setRules({...rules, featuredPackagePrice: parseInt(e.target.value) || 0})}
                     disabled={!isEditing}
                     className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
                   />
-                  <div className="input-suffix">يوم</div>
+                  <div className="input-suffix">ج.م</div>
                 </div>
               </div>
               <div className="input-group">
                 <label className="input-label">
                   <span className="label-icon">📝</span>
-                  مدة الإعلانات العادية:
+                  سعر الباقة ستاندر:
                 </label>
                 <div className="input-wrapper">
                   <input
                     type="number"
-                    value={rules.regularAdDuration}
-                    onChange={(e) => setRules({...rules, regularAdDuration: parseInt(e.target.value)})}
+                    value={rules.standardPackagePrice}
+                    onChange={(e) => setRules({...rules, standardPackagePrice: parseInt(e.target.value) || 0})}
                     disabled={!isEditing}
                     className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
                   />
-                  <div className="input-suffix">يوم</div>
-                </div>
-              </div>
-              <div className="input-group">
-                <label className="input-label">
-                  <span className="label-icon">🎁</span>
-                  مدة الإعلانات المجانية:
-                </label>
-                <div className="input-wrapper">
-                  <input
-                    type="number"
-                    value={rules.freeAdDuration}
-                    onChange={(e) => setRules({...rules, freeAdDuration: parseInt(e.target.value)})}
-                    disabled={!isEditing}
-                    className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
-                  />
-                  <div className="input-suffix">يوم</div>
+                  <div className="input-suffix">ج.م</div>
                 </div>
               </div>
             </div>
@@ -205,8 +188,8 @@ export default function DisplayRules() {
                 <thead>
                   <tr>
                     <th>القسم</th>
-                    <th>عدد الإعلانات المجانية</th>
-                    <th>مدة الأيام</th>
+                    <th>عدد الإعلانات المجانية (في الشهر) </th>
+                    {/* <th>مدة الأيام</th> */}
                     <th>قيمة الموافقة التلقائية</th>
                   </tr>
                 </thead>
@@ -230,7 +213,7 @@ export default function DisplayRules() {
                           className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
                         />
                       </td>
-                      <td>
+                      {/* <td>
                         <input
                           type="number"
                           min={0}
@@ -245,7 +228,7 @@ export default function DisplayRules() {
                           disabled={!isEditing}
                           className={`form-input ${isEditing ? 'editable' : 'readonly'}`}
                         />
-                      </td>
+                      </td> */}
                       <td>
                         <input
                           type="number"

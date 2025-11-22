@@ -312,7 +312,7 @@ export default function NotificationsPage() {
       <div className="notifications-header">
         <div className="header-content">
           <div>
-            <h1 className="page-title">الإشعارات والرسائل</h1>
+            <h1 className="page-title">الإشعارات </h1>
             <p className="page-description">سجل إشعارات طلبات نشر الإعلانات</p>
           </div>
         </div>
@@ -320,9 +320,9 @@ export default function NotificationsPage() {
 
       {/* Ad Requests Section */}
       <div className="campaigns-section">
-        <div className="section-header">
+        {/* <div className="section-header">
           <h3>طلبات نشر الإعلانات</h3>
-        </div>
+        </div> */}
         {/* Date Filter */}
         <div className="filter-bar">
           <span className="filter-label">فلتر بالتاريخ:</span>
@@ -427,7 +427,7 @@ export default function NotificationsPage() {
       </div>
 
       {/* Quick Replies Section */}
-      <div className="quick-replies-section">
+      {/* <div className="quick-replies-section">
         <div className="section-header">
           <h3>الردود السريعة</h3>
           <button 
@@ -463,7 +463,7 @@ export default function NotificationsPage() {
             </div>
           ))}
         </div>
-      </div>
+      </div> */}
 
       {/* Ad Details Modal */}
       {showAdDetails && selectedAdRequest && (

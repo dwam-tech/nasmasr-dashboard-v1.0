@@ -1,8 +1,10 @@
 'use client';
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { fetchAdminStats, fetchRecentActivities } from "@/services/adminStats";
+import { fetchUsersSummary } from "@/services/users";
 
 const navItems = [
   { href: "/dashboard", label: "الرئيسية", icon: "/window.svg" },
@@ -17,9 +19,11 @@ const navItems = [
   },
   { href: "/categories", label: "الأقسام والتصنيفات", icon: "/categories.png" },
   { href: "/moderation", label: "الموافقات والمراجعة", icon: "/star.png" },
-  { href: "/users", label: "المستخدمون والمعلِنون", icon: "/profile.png" },
+  { href: "/users", label: " المستخدمون والمعلِنون والمناديب ", icon: "/profile.png" },
   { href: "/reports", label: "التقارير والإحصائيات", icon: "/clipboard.png" },
-  { href: "/notifications", label: "الإشعارات والرسائل", icon: "/chat2.png" },
+  { href: "/notifications", label: "الإشعارات ", icon: "/chat2.png" },
+  { href: "/messages", label: "الرسائل", icon: "/chat2.png" },
+  { href: "/customer-chats", label: " محادثات العملاء ", icon: "/chat2.png" },
   { href: "/settings", label: "الضبط العام", icon: "/cogwheel.png" }
 ];
 
@@ -32,6 +36,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [openDropdowns, setOpenDropdowns] = useState<string[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
 
   const toggleDropdown = (href: string) => {
     setOpenDropdowns(prev => 
@@ -40,6 +45,57 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         : [...prev, href]
     );
   };
+
+  useEffect(() => {
+    let mounted = true;
+    const token = typeof window !== "undefined" ? (localStorage.getItem("authToken") ?? undefined) : undefined;
+    const load = async () => {
+      try {
+        const [stats, activities, users] = await Promise.all([
+          fetchAdminStats(token).catch(() => null),
+          fetchRecentActivities(20, token).catch(() => null),
+          fetchUsersSummary(token).catch(() => null),
+        ]);
+        const advCount = Array.isArray(users?.users) ? users!.users.filter(u => u.role === "advertiser").length : 0;
+        const userCount = Array.isArray(users?.users) ? users!.users.filter(u => u.role === "user").length : 0;
+        const msgCount = Array.isArray(users?.users) ? users!.users.length * 2 : 0;
+        const chatsCount = Math.max(advCount, userCount);
+        const adsTotal = typeof stats?.cards?.total?.count === "number" ? stats!.cards.total.count : 0;
+        const pendingAds = typeof stats?.cards?.pending?.count === "number" ? stats!.cards.pending.count : 0;
+        const recentCount = typeof activities?.count === "number" ? activities!.count : Array.isArray(activities?.activities) ? activities!.activities.length : 0;
+        const next: Record<string, number> = {
+          "/dashboard": recentCount,
+          "/ads": adsTotal,
+          "/notifications": pendingAds,
+          "/messages": msgCount,
+          "/customer-chats": chatsCount,
+        };
+        if (!mounted) return;
+        setCounts(next);
+      } catch {}
+    };
+    load();
+    const poll = setInterval(() => {
+      try {
+        const keys: Record<string, number | undefined> = {
+          "/dashboard": Number(localStorage.getItem("recentActivitiesCount")) || undefined,
+          "/ads": Number(localStorage.getItem("adsTotalCount")) || undefined,
+          "/notifications": Number(localStorage.getItem("notificationsCount")) || undefined,
+          "/messages": Number(localStorage.getItem("messagesCount")) || undefined,
+          "/customer-chats": Number(localStorage.getItem("customerChatsCount")) || undefined,
+        };
+        setCounts(prev => {
+          const updated = { ...prev };
+          Object.keys(keys).forEach(k => {
+            const v = keys[k];
+            if (typeof v === "number" && !Number.isNaN(v)) updated[k] = v;
+          });
+          return updated;
+        });
+      } catch {}
+    }, 5000);
+    return () => { mounted = false; clearInterval(poll); };
+  }, []);
 
   return (
     <>
@@ -56,15 +112,18 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           <span className="close-icon">×</span>
         </button>
         
-        <Image
-          className="logo"
-          src="/nas-masr.png"
-          alt="شعار ناس مصر"
-          width={140}
-          height={140}
-          priority
-        />
-        <div className="sidebar-title">لوحة التحكم</div>
+        <div className="sidebar-header">
+          <Image
+            className="logo"
+            src="/nas-masr.png"
+            alt="شعار ناس مصر"
+            width={140}
+            height={140}
+            priority
+          />
+          <div className="sidebar-title">لوحة التحكم</div>
+        </div>
+
         <nav aria-label="القائمة الرئيسية">
           <ul className="nav-list">
             {navItems.map((item) => {
@@ -83,6 +142,9 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                       <span className="nav-indicator" aria-hidden="true" />
                       <Image src={item.icon} alt="" width={20} height={20} className="nav-icon" />
                       <span className="nav-text">{item.label}</span>
+                      {typeof counts[item.href] === "number" && counts[item.href] > 0 ? (
+                        <span className="nav-count-badge">{counts[item.href]}</span>
+                      ) : null}
                       <span className={`dropdown-arrow ${isDropdownOpen ? 'open' : ''}`}>
                         ▼
                       </span>
@@ -96,6 +158,9 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                       <span className="nav-indicator" aria-hidden="true" />
                       <Image src={item.icon} alt="" width={20} height={20} className="nav-icon" />
                       <span className="nav-text">{item.label}</span>
+                      {typeof counts[item.href] === "number" && counts[item.href] > 0 ? (
+                        <span className="nav-count-badge">{counts[item.href]}</span>
+                      ) : null}
                     </Link>
                   )}
                   

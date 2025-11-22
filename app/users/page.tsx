@@ -51,6 +51,7 @@ const toImageUrl = (src: string | null | undefined): string => {
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'users' | 'advertisers' | 'delegates'>('all');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [activeTab, setActiveTab] = useState('data');
@@ -62,6 +63,8 @@ export default function UsersPage() {
   const [editForm, setEditForm] = useState<User | null>(null);
   const [ads, setAds] = useState<AdItem[]>([]);
   const [categories, setCategories] = useState<string[]>(['all']);
+  const [isAdModalOpen, setIsAdModalOpen] = useState(false);
+  const [adInModal, setAdInModal] = useState<AdItem | null>(null);
   type UserSubscriptionForm = { annualFee: number; paidAmount: number };
   const SUB_LS_PREFIX = 'userSubscription:';
   const [subscriptionForm, setSubscriptionForm] = useState<UserSubscriptionForm>({ annualFee: 0, paidAmount: 0 });
@@ -196,6 +199,15 @@ export default function UsersPage() {
   const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
   const [userForVerify, setUserForVerify] = useState<User | null>(null);
   const [verificationCode, setVerificationCode] = useState<string>('');
+
+  const openAdDetailsModal = (ad: AdItem) => {
+    setAdInModal(ad);
+    setIsAdModalOpen(true);
+  };
+  const closeAdDetailsModal = () => {
+    setIsAdModalOpen(false);
+    setAdInModal(null);
+  };
 
   const generateVerificationCode = () => Math.floor(100000 + Math.random() * 900000).toString();
   const openVerifyModal = async (user: User) => {
@@ -351,11 +363,18 @@ export default function UsersPage() {
           (ad as any).categorySlug === selectedCategory ||
           ad.category === (CATEGORY_LABELS_AR[selectedCategory] ?? selectedCategory)
       );
-  const filteredUsers = users.filter(user =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.phone.includes(searchTerm) ||
-    user.userCode.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredUsers = users
+    .filter((user) => {
+      if (roleFilter === 'users') return user.role === 'user';
+      if (roleFilter === 'advertisers') return user.role === 'advertiser';
+      if (roleFilter === 'delegates') return user.role === 'delegate';
+      return true;
+    })
+    .filter(user =>
+      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.phone.includes(searchTerm) ||
+      user.userCode.toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
@@ -394,7 +413,7 @@ export default function UsersPage() {
   // Reset to first page when search changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm]);
+  }, [searchTerm, roleFilter]);
 
   // Reset edit mode when switching selected user
   useEffect(() => {
@@ -938,7 +957,7 @@ export default function UsersPage() {
                 <div className="ads-list">
                   {filteredAds.length > 0 ? (
                     filteredAds.map((ad) => (
-                      <div key={ad.id} className="ad-item">
+                      <div key={ad.id} className="ad-item" onClick={() => openAdDetailsModal(ad)}>
                         <div className="ad-image">
                           <Image 
                             src={ad.image} 
@@ -964,6 +983,40 @@ export default function UsersPage() {
                       <p>لا توجد إعلانات في هذا القسم</p>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {isAdModalOpen && adInModal && (
+              <div className="modal-overlay" onClick={closeAdDetailsModal}>
+                <div className="ad-details-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="modal-header">
+                    <h3>تفاصيل الإعلان</h3>
+                    <button className="modal-close" onClick={closeAdDetailsModal}>✕</button>
+                  </div>
+                  <div className="modal-content">
+                    <div className="ad-details-grid">
+                      <div className="ad-details-image">
+                        <Image src={adInModal.image} alt={adInModal.title} width={480} height={360} style={{ objectFit: 'cover' }} />
+                      </div>
+                      <div className="ad-details-info">
+                        <h4 className="ad-details-title">{adInModal.title}</h4>
+                        <div className="ad-details-meta">
+                          <span className="category-badge">{adInModal.category}</span>
+                          <span className={`status-badge ${adInModal.status === 'منشور' ? 'published' : 'pending'}`}>{adInModal.status}</span>
+                          <span className="publish-date">{adInModal.publishDate}</span>
+                        </div>
+                        <div className="ad-details-rows">
+                          <div className="detail-row"><span className="detail-label">القسم</span><span className="detail-value">{adInModal.category}</span></div>
+                          <div className="detail-row"><span className="detail-label">الحالة</span><span className="detail-value">{adInModal.status}</span></div>
+                          <div className="detail-row"><span className="detail-label">تاريخ النشر</span><span className="detail-value">{adInModal.publishDate}</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="modal-footer">
+                    <button className="btn-primary" onClick={closeAdDetailsModal}>إغلاق</button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1283,7 +1336,7 @@ export default function UsersPage() {
 
       <div className="users-header">
         <div className="header-content">
-          <h1>المستخدمون والمعلِنون</h1>
+          <h1>المستخدمون والمعلِنون والمناديب</h1>
           <p>إدارة حسابات المستخدمين والمعلنين</p>
         </div>
       </div>
@@ -1300,6 +1353,33 @@ export default function UsersPage() {
             />
             <button className="search-btn">🔍</button>
           </div>
+        </div>
+
+        <div className="users-tabs">
+          <button
+            className={`tab-btn ${roleFilter === 'all' ? 'active' : ''}`}
+            onClick={() => setRoleFilter('all')}
+          >
+            الكل
+          </button>
+          <button
+            className={`tab-btn ${roleFilter === 'users' ? 'active' : ''}`}
+            onClick={() => setRoleFilter('users')}
+          >
+            المستخدمون
+          </button>
+          <button
+            className={`tab-btn ${roleFilter === 'advertisers' ? 'active' : ''}`}
+            onClick={() => setRoleFilter('advertisers')}
+          >
+            المعلنون
+          </button>
+          <button
+            className={`tab-btn ${roleFilter === 'delegates' ? 'active' : ''}`}
+            onClick={() => setRoleFilter('delegates')}
+          >
+            المناديب
+          </button>
         </div>
 
         {/* Results Info */}
