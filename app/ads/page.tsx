@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import DateInput from "@/components/DateInput";
 
 // Mock data for demonstration - 100 ads
 const mockAds = [
@@ -337,12 +338,12 @@ export default function AdsManagement() {
 
         <div className="filter-item">
           <label className="filter-label">📅 من تاريخ</label>
-          <input type="date" className="form-input" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          <DateInput value={fromDate} onChange={(v) => setFromDate(v)} className="form-input" />
         </div>
 
         <div className="filter-item">
           <label className="filter-label">📅 إلى تاريخ</label>
-          <input type="date" className="form-input" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          <DateInput value={toDate} onChange={(v) => setToDate(v)} className="form-input" />
         </div>
       </div>
 

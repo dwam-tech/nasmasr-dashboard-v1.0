@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { fetchCarMakes, fetchCategoryFields } from '@/services/makes';
+import { fetchCarMakes, fetchCategoryFields, fetchGovernorates, postAdminGovernorates } from '@/services/makes';
 
 interface Category {
   id: number;
@@ -64,6 +64,14 @@ export default function CategoriesPage() {
   const [managingCategoryId, setManagingCategoryId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; }
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const showToast = (message: string, type: Toast['type'] = 'info') => {
+    const id = Date.now().toString();
+    setToasts(prev => [...prev, { id, type, message }]);
+    setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, 3500);
+  };
+  const removeToast = (id: string) => { setToasts(prev => prev.filter(t => t.id !== id)); };
   const [selectedGovernorate, setSelectedGovernorate] = useState('');
   const [selectedCity, setSelectedCity] = useState('');
   const [BRANDS_MODELS, setBRANDS_MODELS] = useState<Record<string, string[]>>({});
@@ -321,17 +329,144 @@ export default function CategoriesPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const GOVERNORATES: Record<string, string[]> = {
-    'القاهرة': ['مدينة نصر', 'مصر الجديدة', 'المعادي', 'حلوان', 'الزيتون'],
-    'الجيزة': ['الدقي', 'العجوزة', 'الهرم', '6 أكتوبر', 'المنيب'],
-    'الإسكندرية': ['سيدي جابر', 'سموحة', 'العصافرة', 'المنتزه', 'العجمي'],
-    'الشرقية': ['الزقازيق', 'العاشر من رمضان', 'بلبيس', 'منيا القمح', 'أبو حماد'],
-    'الدقهلية': ['المنصورة', 'طلخا', 'ميت غمر', 'أجا', 'شربين'],
-    'القليوبية': ['بنها', 'قها', 'قليوب', 'العبور', 'الخانكة'],
-    'الغربية': ['طنطا', 'المحلة الكبرى', 'زفتى', 'سمنود', 'بسيون'],
-    'المنيا': ['المنيا', 'مغاغة', 'مطاي', 'أبو قرقاص', 'بني مزار'],
+  const [GOVERNORATES_MAP, setGOVERNORATES_MAP] = useState<Record<string, string[]>>({});
+  const cities = selectedGovernorate ? GOVERNORATES_MAP[selectedGovernorate] ?? [] : [];
+  const renameGovernorate = (prevName: string, nextRaw: string) => {
+    const next = nextRaw.trim();
+    if (!next || prevName === next) return;
+    setGOVERNORATES_MAP(prev => {
+      if (prev[next]) return prev;
+      const n = { ...prev };
+      const list = n[prevName] ?? [];
+      delete n[prevName];
+      n[next] = list;
+      return n;
+    });
+    if (selectedGovernorate === prevName) setSelectedGovernorate(next);
+    showToast('تم تعديل المحافظة', 'success');
   };
-  const cities = selectedGovernorate ? GOVERNORATES[selectedGovernorate] ?? [] : [];
+  const renameCity = (prevName: string, nextRaw: string) => {
+    const next = nextRaw.trim();
+    if (!next || prevName === next || !selectedGovernorate) return;
+    setGOVERNORATES_MAP(prev => {
+      const list = prev[selectedGovernorate] ?? [];
+      if (list.includes(next)) return prev;
+      const updated = list.map(x => (x === prevName ? next : x));
+      return { ...prev, [selectedGovernorate]: updated };
+    });
+    if (selectedCity === prevName) setSelectedCity(next);
+    showToast('تم تعديل المدينة', 'success');
+  };
+  const [newGovernorate, setNewGovernorate] = useState('');
+  const [newCity, setNewCity] = useState('');
+  const [newCitiesBulk, setNewCitiesBulk] = useState('');
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const items = await fetchGovernorates();
+        if (!mounted) return;
+        const map = Object.fromEntries(items.map(g => [g.name, g.cities]));
+        setGOVERNORATES_MAP(map);
+      } catch {}
+    })();
+    return () => { mounted = false; };
+  }, []);
+  const addGovernorate = async () => {
+    const name = newGovernorate.trim();
+    if (!name) return;
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined;
+      const items = await postAdminGovernorates({ name, cities: [] }, token);
+      setGOVERNORATES_MAP(prev => {
+        const n = { ...prev };
+        if (Array.isArray(items) && items.length > 0) {
+          for (const g of items) {
+            const govName = g.name;
+            const cities = Array.isArray(g.cities) ? g.cities : [];
+            if (govName) n[govName] = cities;
+          }
+        } else {
+          if (!n[name]) n[name] = [];
+        }
+        return n;
+      });
+    } catch {
+      setGOVERNORATES_MAP(prev => {
+        if (prev[name]) return prev;
+        return { ...prev, [name]: [] };
+      });
+    }
+    setSelectedGovernorate(name);
+    setSelectedCity('');
+    setNewGovernorate('');
+  };
+  const removeGovernorate = (name: string) => {
+    const linked = (GOVERNORATES_MAP[name] ?? []).length > 0;
+    if (linked) { showToast('مرتبط بداتا إعلان، يمكنك التعديل بدلًا من الحذف', 'warning'); return; }
+    setGOVERNORATES_MAP(prev => {
+      const n = { ...prev };
+      delete n[name];
+      return n;
+    });
+    if (selectedGovernorate === name) {
+      setSelectedGovernorate('');
+      setSelectedCity('');
+    }
+    showToast('تم حذف المحافظة', 'info');
+  };
+  const addCity = () => {
+    const name = newCity.trim();
+    if (!name || !selectedGovernorate) return;
+    setGOVERNORATES_MAP(prev => {
+      const list = prev[selectedGovernorate] ?? [];
+      if (list.includes(name)) return prev;
+      return { ...prev, [selectedGovernorate]: [...list, name] };
+    });
+    setNewCity('');
+  };
+  const addCitiesBulk = async () => {
+    if (!selectedGovernorate) return;
+    const tokens = newCitiesBulk.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
+    if (tokens.length === 0) return;
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined;
+      const items = await postAdminGovernorates({ name: selectedGovernorate, cities: tokens }, token);
+      setGOVERNORATES_MAP(prev => {
+        const n = { ...prev };
+        if (Array.isArray(items) && items.length > 0) {
+          for (const g of items) {
+            const govName = g.name;
+            const cities = Array.isArray(g.cities) ? g.cities : [];
+            if (govName) n[govName] = cities;
+          }
+        } else {
+          const list = n[selectedGovernorate] ?? [];
+          const merged = Array.from(new Set([...list, ...tokens]));
+          n[selectedGovernorate] = merged;
+        }
+        return n;
+      });
+    } catch {
+      setGOVERNORATES_MAP(prev => {
+        const list = prev[selectedGovernorate] ?? [];
+        const merged = Array.from(new Set([...list, ...tokens]));
+        return { ...prev, [selectedGovernorate]: merged };
+      });
+    }
+    setNewCitiesBulk('');
+  };
+  const removeCity = (name: string) => {
+    if (!selectedGovernorate) return;
+    const linked = selectedCity === name;
+    if (linked) { showToast('مرتبط بداتا إعلان، يمكنك التعديل بدلًا من الحذف', 'warning'); return; }
+    setGOVERNORATES_MAP(prev => {
+      const list = prev[selectedGovernorate] ?? [];
+      return { ...prev, [selectedGovernorate]: list.filter(x => x !== name) };
+    });
+    if (selectedCity === name) setSelectedCity('');
+    showToast('تم حذف المدينة', 'info');
+  };
   const models = selectedBrand ? BRANDS_MODELS[selectedBrand] ?? [] : [];
   const rentalModels = selectedRentalBrand ? RENTAL_BRANDS_MODELS[selectedRentalBrand] ?? [] : [];
   const partsModels = selectedPartsBrand ? PARTS_BRANDS_MODELS[selectedPartsBrand] ?? [] : [];
@@ -373,9 +508,11 @@ export default function CategoriesPage() {
   const [transmissionOptions, setTransmissionOptions] = useState<string[]>([]);
   const [fuelOptions, setFuelOptions] = useState<string[]>([]);
   const [rentalYearOptions, setRentalYearOptions] = useState<string[]>(YEAR_OPTIONS);
-  const ManagedSelect = ({ options, value, onChange, onDelete, disabled, placeholder }: { options: string[]; value: string; onChange: (v: string) => void; onDelete: (v: string) => void; disabled?: boolean; placeholder?: string }) => {
+  const ManagedSelect = ({ options, value, onChange, onDelete, onEdit, disabled, placeholder }: { options: string[]; value: string; onChange: (v: string) => void; onDelete: (v: string) => void; onEdit?: (prev: string, next: string) => void; disabled?: boolean; placeholder?: string }) => {
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement | null>(null);
+    const [editingKey, setEditingKey] = useState<string | null>(null);
+    const [editingValue, setEditingValue] = useState<string>('');
     useEffect(() => {
       const h = (e: MouseEvent) => {
         if (!ref.current) return;
@@ -397,11 +534,30 @@ export default function CategoriesPage() {
               <div className="managed-select-empty">لا توجد عناصر</div>
             ) : (
               options.map((opt) => (
-                <div key={opt} className={`managed-select-item ${value === opt ? 'selected' : ''}`} onClick={() => { onChange(opt); setOpen(false); }}>
-                  <span className="managed-select-text">{opt}</span>
-                  <button type="button" className="managed-select-delete" onClick={(e) => { e.stopPropagation(); onDelete(opt); }}>
-                    حذف
-                  </button>
+                <div key={opt} className={`managed-select-item ${value === opt ? 'selected' : ''}`} onClick={() => { if (!editingKey) { onChange(opt); setOpen(false); } }}>
+                  {editingKey === opt ? (
+                    <div className="managed-select-editing">
+                      <input className="form-input" value={editingValue} onChange={(e) => setEditingValue(e.target.value)} />
+                      <button type="button" className="managed-select-save" onClick={(e) => { e.stopPropagation(); const next = editingValue.trim(); if (!next) return; onEdit?.(opt, next); setEditingKey(null); setEditingValue(''); }}>
+                        حفظ
+                      </button>
+                      <button type="button" className="managed-select-cancel" onClick={(e) => { e.stopPropagation(); setEditingKey(null); setEditingValue(''); }}>
+                        إلغاء
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="managed-select-text">{opt}</span>
+                      <div className="managed-select-actions">
+                        <button type="button" className="managed-select-edit" onClick={(e) => { e.stopPropagation(); setEditingKey(opt); setEditingValue(opt); }}>
+                          تعديل
+                        </button>
+                        <button type="button" className="managed-select-delete" onClick={(e) => { e.stopPropagation(); onDelete(opt); }}>
+                          حذف
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))
             )}
@@ -455,6 +611,20 @@ export default function CategoriesPage() {
       setSelectedModel('');
     }
   };
+  const renameBrand = (prevName: string, nextRaw: string) => {
+    const next = nextRaw.trim();
+    if (!next || prevName === next) return;
+    setBRANDS_MODELS(prev => {
+      if (prev[next]) return prev;
+      const n = { ...prev };
+      const list = n[prevName] ?? [];
+      delete n[prevName];
+      n[next] = list;
+      return n;
+    });
+    if (selectedBrand === prevName) setSelectedBrand(next);
+    showToast('تم تعديل الماركة', 'success');
+  };
 
   const addModelsBulk = () => {
     if (!selectedBrand) return;
@@ -481,6 +651,18 @@ export default function CategoriesPage() {
       return { ...prev, [selectedBrand]: list.filter(x => x !== m) };
     });
     if (selectedModel === m) setSelectedModel('');
+  };
+  const renameModel = (prevName: string, nextRaw: string) => {
+    const next = nextRaw.trim();
+    if (!next || prevName === next || !selectedBrand) return;
+    setBRANDS_MODELS(prev => {
+      const list = prev[selectedBrand] ?? [];
+      if (list.includes(next)) return prev;
+      const updated = list.map(x => (x === prevName ? next : x));
+      return { ...prev, [selectedBrand]: updated };
+    });
+    if (selectedModel === prevName) setSelectedModel(next);
+    showToast('تم تعديل الموديل', 'success');
   };
   const addPartsBrand = () => {
     const name = newPartsBrand.trim();
@@ -1324,11 +1506,13 @@ export default function CategoriesPage() {
   };
   const removeEducationSub = (s: string) => {
     if (!selectedEducationMain) return;
+    if (selectedEducationSub === s) { showToast('مرتبط بداتا إعلان، يمكنك التعديل بدلًا من الحذف', 'warning'); return; }
     setEDUCATION_MAIN_SUBS(prev => {
       const list = prev[selectedEducationMain] ?? [];
       return { ...prev, [selectedEducationMain]: list.filter(x => x !== s) };
     });
     if (selectedEducationSub === s) setSelectedEducationSub('');
+    showToast('تم حذف الفرعي', 'info');
   };
 
   const addShippingMain = () => {
@@ -2233,34 +2417,69 @@ export default function CategoriesPage() {
               )}
             </p>
           </div>
+          <div className="toast-container">
+            {toasts.map(t => (
+              <div key={t.id} className={`toast toast-${t.type}`} onClick={() => removeToast(t.id)} title="إغلاق">
+                {t.message}
+              </div>
+            ))}
+          </div>
       <div className="location-filter">
             <div className="location-group">
               <label className="location-label">المحافظة</label>
-              <select
-                className="form-select"
+              <ManagedSelect
+                options={Object.keys(GOVERNORATES_MAP)}
                 value={selectedGovernorate}
-                onChange={(e) => { setSelectedGovernorate(e.target.value); setSelectedCity(''); }}
-              >
-                <option value="">اختر المحافظة</option>
-                {Object.keys(GOVERNORATES).map(g => (
-                  <option key={g} value={g}>{g}</option>
-                ))}
-              </select>
+                onChange={(v) => { setSelectedGovernorate(v); setSelectedCity(''); }}
+                onDelete={(opt) => removeGovernorate(opt)}
+                onEdit={(prev, next) => renameGovernorate(prev, next)}
+                placeholder="اختر المحافظة"
+              />
+              <div className="inline-actions">
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="أضف محافظة"
+                  value={newGovernorate}
+                  onChange={(e) => setNewGovernorate(e.target.value)}
+                />
+                <button className="btn-add" onClick={addGovernorate}>إضافة</button>
+              </div>
       </div>
 
             <div className="location-group">
               <label className="location-label">المدينة</label>
-              <select
-                className="form-select"
+              <ManagedSelect
+                options={cities}
                 value={selectedCity}
-                onChange={(e) => setSelectedCity(e.target.value)}
+                onChange={(v) => setSelectedCity(v)}
+                onDelete={(opt) => removeCity(opt)}
+                onEdit={(prev, next) => renameCity(prev, next)}
                 disabled={!selectedGovernorate}
-              >
-                <option value="">{selectedGovernorate ? 'اختر المدينة' : 'اختر المحافظة أولًا'}</option>
-                {cities.map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+                placeholder={selectedGovernorate ? 'اختر المدينة' : 'اختر المحافظة أولًا'}
+              />
+              {/* <div className="inline-actions">
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="أضف مدينة"
+                  value={newCity}
+                  onChange={(e) => setNewCity(e.target.value)}
+                  disabled={!selectedGovernorate}
+                />
+                <button className="btn-add" onClick={addCity} disabled={!selectedGovernorate}>إضافة</button>
+              </div> */}
+              <div className="inline-actions">
+                <textarea
+                  className="form-input"
+                  placeholder="أدخل المدن مفصولة بفواصل أو أسطر"
+                  value={newCitiesBulk}
+                  onChange={(e) => setNewCitiesBulk(e.target.value)}
+                  disabled={!selectedGovernorate}
+                  rows={1}
+                />
+                <button className="btn-add" onClick={addCitiesBulk} disabled={!selectedGovernorate}>تسليم المدن</button>
+              </div>
             </div>
           </div>
           <div className="categories-grid">
@@ -2337,16 +2556,14 @@ export default function CategoriesPage() {
                         <div className="brand-model-filter">
                           <div className="location-group">
                             <label className="location-label">الماركة</label>
-                            <select
-                              className="form-select"
+                            <ManagedSelect
+                              options={Object.keys(BRANDS_MODELS)}
                               value={selectedBrand}
-                              onChange={(e) => { setSelectedBrand(e.target.value); setSelectedModel(''); }}
-                            >
-                              <option value="">اختر الماركة</option>
-                              {Object.keys(BRANDS_MODELS).map(b => (
-                                <option key={b} value={b}>{b}</option>
-                              ))}
-                            </select>
+                              onChange={(v) => { setSelectedBrand(v); setSelectedModel(''); }}
+                              onDelete={(opt) => removeBrand(opt)}
+                              onEdit={(prev, next) => renameBrand(prev, next)}
+                              placeholder="اختر الماركة"
+                            />
                             <div className="inline-actions">
                               <input
                                 type="text"
@@ -2356,24 +2573,22 @@ export default function CategoriesPage() {
                                 onChange={(e) => setNewBrand(e.target.value)}
                               />
                               <button className="btn-add" onClick={addBrand}>إضافة</button>
-                              {selectedBrand && (
+                              {/* {selectedBrand && (
                                 <button className="btn-delete" onClick={() => removeBrand(selectedBrand)}>حذف الماركة</button>
-                              )}
+                              )} */}
                             </div>
                           </div>
                           <div className="location-group">
                             <label className="location-label">الموديل</label>
-                            <select
-                              className="form-select"
+                            <ManagedSelect
+                              options={models}
                               value={selectedModel}
-                              onChange={(e) => setSelectedModel(e.target.value)}
+                              onChange={(v) => setSelectedModel(v)}
+                              onDelete={(opt) => removeModel(opt)}
+                              onEdit={(prev, next) => renameModel(prev, next)}
                               disabled={!selectedBrand}
-                            >
-                              <option value="">{selectedBrand ? 'اختر الموديل' : 'اختر الماركة أولًا'}</option>
-                              {models.map(m => (
-                                <option key={m} value={m}>{m}</option>
-                              ))}
-                            </select>
+                              placeholder={selectedBrand ? 'اختر الموديل' : 'اختر الماركة أولًا'}
+                            />
                             <div className="inline-actions">
                               <textarea
                                 className="form-input"
@@ -2381,7 +2596,7 @@ export default function CategoriesPage() {
                                 value={newModelsBulk}
                                 onChange={(e) => setNewModelsBulk(e.target.value)}
                                 disabled={!selectedBrand}
-                                rows={3}
+                                rows={1}
                               />
                               <button className="btn-add" onClick={addModelsBulk} disabled={!selectedBrand}>تسليم الموديلات</button>
                             </div>
@@ -3306,7 +3521,23 @@ export default function CategoriesPage() {
                             </div>
                             <div className="models-list">
                               {educationSubs.map(s => (
-                                <span key={s} className="model-tag">{s}<button className="tag-remove" onClick={() => removeEducationSub(s)} title="حذف">✕</button></span>
+                                <span key={s} className="model-tag">
+                                  {s}
+                                  <button className="tag-edit" title="تعديل" onClick={() => {
+                                    const next = (typeof window !== 'undefined') ? prompt('تعديل الفرعي', s) || '' : '';
+                                    const v = next.trim();
+                                    if (!v || v === s || !selectedEducationMain) return;
+                                    setEDUCATION_MAIN_SUBS(prev => {
+                                      const list = prev[selectedEducationMain] ?? [];
+                                      if (list.includes(v)) return prev;
+                                      const updated = list.map(x => (x === s ? v : x));
+                                      return { ...prev, [selectedEducationMain]: updated };
+                                    });
+                                    if (selectedEducationSub === s) setSelectedEducationSub(v);
+                                    showToast('تم تعديل الفرعي', 'success');
+                                  }}>✎</button>
+                                  <button className="tag-remove" onClick={() => removeEducationSub(s)} title="حذف">✕</button>
+                                </span>
                               ))}
                             </div>
                           </div>
@@ -4310,7 +4541,7 @@ export default function CategoriesPage() {
 
       {managingCategoryId !== null && (
         <div
-          className="modal-overlay manage-overlay"
+          className="manage-overlay"
           onClick={(e) => {
             const target = e.target as HTMLElement;
             if (target.classList.contains('manage-overlay')) setManagingCategoryId(null);

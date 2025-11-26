@@ -12,3 +12,20 @@ export interface CategoryField {
   field_name: string;
   options: string[];
 }
+
+export interface CityItem {
+  id?: number;
+  governorate_id?: number;
+  name: string;
+}
+
+export interface GovernorateItem {
+  id?: number;
+  name: string;
+  cities: string[];
+}
+
+export interface GovernoratesResponse {
+  count?: number;
+  governorates: GovernorateItem[];
+}

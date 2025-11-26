@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetchAdminStats, fetchRecentActivities } from '@/services/adminStats';
 import type { AdminStatsResponse } from '@/models/stats';
@@ -9,6 +9,8 @@ export default function DashboardPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [statsData, setStatsData] = useState<AdminStatsResponse | null>(null);
   const [recentActivities, setRecentActivities] = useState<{ action: string; time: string; type: string }[]>([]);
+  const [activityPage, setActivityPage] = useState(0);
+  const activityPageSize = 4;
   const [isAuthenticated] = useState(() => {
     try {
       return localStorage.getItem('isAuthenticated') === 'true';
@@ -50,6 +52,21 @@ export default function DashboardPage() {
       })
       .catch(() => {});
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    setActivityPage(0);
+  }, [recentActivities]);
+
+  const totalActivityPages = useMemo(() => {
+    const total = recentActivities.length;
+    const pages = Math.ceil(total / activityPageSize);
+    return pages || 1;
+  }, [recentActivities.length]);
+
+  const currentActivities = useMemo(() => {
+    const start = activityPage * activityPageSize;
+    return recentActivities.slice(start, start + activityPageSize);
+  }, [recentActivities, activityPage]);
 
   
 
@@ -96,10 +113,10 @@ export default function DashboardPage() {
   ];
 
   const quickActions = [
-    { title: 'مراجعة الإعلانات', icon: '🔍', color: 'teal' },
-    { title: 'إضافة قسم جديد', icon: '➕', color: 'violet' },
-    { title: 'إدارة المستخدمين', icon: '👤', color: 'indigo' },
-    { title: 'إرسال إشعار', icon: '📣', color: 'pink' },
+    { title: 'إدارة الإعلانات', icon: '🔍', color: 'teal', href: '/moderation' },
+    { title: 'إدارة الأقسام', icon: '⚙️', color: 'violet', href: '/categories' },
+    { title: 'إدارة المستخدمين', icon: '👤', color: 'indigo', href: '/users' },
+    { title: 'إدارة الإشعارات', icon: '📣', color: 'pink', href: '/notifications' },
   ];
 
   
@@ -141,7 +158,7 @@ export default function DashboardPage() {
             <div key={index} className={`quick-action-card action-${action.color}`}>
               <div className="action-icon">{action.icon}</div>
               <h3 className="action-title">{action.title}</h3>
-              <button className="action-button" onClick={() => router.push('/dashboard/ads')}>انتقال<span className="arrow">←</span></button>
+              <button className="action-button" onClick={() => router.push(action.href)}>انتقال<span className="arrow">←</span></button>
             </div>
           ))}
         </div>
@@ -150,7 +167,7 @@ export default function DashboardPage() {
       <div className="recent-activities-section">
         <h2 className="section-title">النشاطات الأخيرة</h2>
         <div className="activities-list">
-          {recentActivities.map((activity, index) => (
+          {currentActivities.map((activity, index) => (
             <div key={index} className={`activity-item activity-${activity.type}`}>
               <div className="activity-indicator"></div>
               <div className="activity-content">
@@ -159,6 +176,25 @@ export default function DashboardPage() {
               </div>
             </div>
           ))}
+        </div>
+        <div className="pagination-container">
+          <div className="pagination-info">صفحة {activityPage + 1} من {totalActivityPages}</div>
+          <div className="pagination-controls">
+            <button
+              className="pagination-btn pagination-nav-btn"
+              disabled={activityPage <= 0}
+              onClick={() => setActivityPage((p) => Math.max(0, p - 1))}
+            >
+              السابق
+            </button>
+            <button
+              className="pagination-btn pagination-nav-btn"
+              disabled={activityPage >= totalActivityPages - 1}
+              onClick={() => setActivityPage((p) => Math.min(totalActivityPages - 1, p + 1))}
+            >
+              التالي
+            </button>
+          </div>
         </div>
       </div>
     </div>

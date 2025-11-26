@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface AdRequest {
   id: string;
@@ -27,6 +27,137 @@ interface Toast {
   id: string;
   type: 'success' | 'error' | 'info';
   message: string;
+}
+
+function DateInput(props: { value: string; onChange: (v: string) => void }) {
+  const { value, onChange } = props;
+  const [open, setOpen] = useState(false);
+  const parsed = useMemo(() => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const [y, m, d] = value.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+    return dt;
+  }, [value]);
+  const [viewDate, setViewDate] = useState<Date>(() => parsed || new Date());
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const h = (ev: MouseEvent) => {
+      if (!wrapperRef.current) return;
+      const target = ev.target as Node;
+      if (!wrapperRef.current.contains(target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  useEffect(() => {
+    if (parsed && open) setViewDate(parsed);
+  }, [parsed, open]);
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  const startOffset = (new Date(year, month, 1).getDay() + 1) % 7;
+  const blanks = Array.from({ length: startOffset });
+  const days = Array.from({ length: totalDays }, (_, i) => i + 1);
+
+  const fmt = (dt: Date) => {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+  const isSameDate = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const monthLabel = viewDate.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+  const weekdays = [
+    { full: 'السبت', short: 'سبت' },
+    { full: 'الأحد', short: 'أحد' },
+    { full: 'الإثنين', short: 'اثنين' },
+    { full: 'الثلاثاء', short: 'ثلاثاء' },
+    { full: 'الأربعاء', short: 'أربعاء' },
+    { full: 'الخميس', short: 'خميس' },
+    { full: 'الجمعة', short: 'جمعة' },
+  ];
+
+  return (
+    <div className="date-input-wrapper" ref={wrapperRef}>
+      <input
+        type="text"
+        className="filter-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="YYYY-MM-DD"
+        style={{ direction: 'ltr' }}
+      />
+      <button
+        type="button"
+        className="calendar-button"
+        onClick={() => setOpen((p) => !p)}
+        aria-label="فتح التقويم"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3" y="5" width="18" height="16" rx="4" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <path d="M3 9h18" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </button>
+      {open && (
+        <div className="date-popover">
+          <div className="calendar-header">
+            <button
+              type="button"
+              className="calendar-nav-btn"
+              onClick={() => setViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+            >
+              ◀
+            </button>
+            <div className="calendar-title">{monthLabel}</div>
+            <button
+              type="button"
+              className="calendar-nav-btn"
+              onClick={() => setViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+            >
+              ▶
+            </button>
+          </div>
+          <div className="calendar-weekdays">
+            {weekdays.map((w) => (
+              <div key={w.full} className="weekday-cell">
+                <span className="weekday-full">{w.full}</span>
+                <span className="weekday-short">{w.short}</span>
+              </div>
+            ))}
+          </div>
+          <div className="calendar-grid">
+            {blanks.map((_, i) => (
+              <div key={`b-${i}`} className="calendar-cell empty" />
+            ))}
+            {days.map((d) => {
+              const dt = new Date(year, month, d);
+              const today = isSameDate(dt, new Date());
+              const selected = parsed ? isSameDate(dt, parsed) : false;
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  className={`calendar-cell day ${selected ? 'selected' : ''} ${today ? 'today' : ''}`}
+                  onClick={() => {
+                    onChange(fmt(dt));
+                    setOpen(false);
+                  }}
+                >
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function NotificationsPage() {
@@ -318,110 +449,87 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* Ad Requests Section */}
       <div className="campaigns-section">
-        {/* <div className="section-header">
-          <h3>طلبات نشر الإعلانات</h3>
-        </div> */}
-        {/* Date Filter */}
         <div className="filter-bar">
           <span className="filter-label">فلتر بالتاريخ:</span>
           <div className="filter-group">
             <label className="filter-label">من</label>
-            <input
-              className="filter-input"
-              type="date"
+            <DateInput
               value={dateFilter.start}
-              onChange={(e) => { setDateFilter({ ...dateFilter, start: e.target.value }); setCurrentPage(1); }}
+              onChange={(v) => { setDateFilter({ ...dateFilter, start: v }); setCurrentPage(1); }}
             />
           </div>
           <div className="filter-group">
             <label className="filter-label">إلى</label>
-            <input
-              className="filter-input"
-              type="date"
+            <DateInput
               value={dateFilter.end}
-              onChange={(e) => { setDateFilter({ ...dateFilter, end: e.target.value }); setCurrentPage(1); }}
+              onChange={(v) => { setDateFilter({ ...dateFilter, end: v }); setCurrentPage(1); }}
             />
           </div>
-          <button
+          {/* <button
             className="btn-cancel filter-reset"
             onClick={() => { setDateFilter({ start: '', end: '' }); setCurrentPage(1); }}
           >
             إعادة تعيين الفلتر
-          </button>
+          </button> */}
         </div>
-
-        <div className="notifications-list" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="notifications-list">
           {paginatedAdRequests.length === 0 && (
-            <div style={{ background: 'white', border: '1px dashed #d1d5db', borderRadius: '12px', padding: '20px', color: '#6b7280' }}>
-              لا توجد إشعارات حسب الفلتر المحدد
+            <div className="empty-state">
+              <div className="empty-icon">🔔</div>
+              <h3>لا توجد إشعارات</h3>
+              <p>لا توجد إشعارات حسب الفلتر المحدد</p>
             </div>
           )}
           {paginatedAdRequests.map((ad) => (
-            <div key={ad.id} className="notification-item" style={{
-              background: 'white',
-              border: '1px solid #e2e8f0',
-              borderRadius: '12px',
-              padding: '20px',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-              transition: 'all 0.3s ease',
-              cursor: 'pointer'
-            }}
-            onClick={() => handleViewAdDetails(ad)}
-            >
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                    <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '600', color: '#1f2937' }}>{ad.title}</h4>
-                  </div>
-                  
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px', fontSize: '0.9rem', color: '#6b7280' }}>
-                    <span> {ad.advertiser}</span>
-                    <span> {ad.category}</span>
-                    <span> {ad.location}</span>
-                    <span> {formatPrice(ad.price)}</span>
-                  </div>
-                  
-                  <p style={{ margin: '0 0 8px 0', color: '#4b5563', fontSize: '0.9rem', lineHeight: '1.5' }}>
-                    {ad.description.length > 100 ? `${ad.description.substring(0, 100)}...` : ad.description}
-                  </p>
-                  
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#9ca3af' }}>
-                    تم التقديم: {formatDate(ad.submittedAt)}
-                  </p>
-                </div>
+            <div key={ad.id} className="notification-card" onClick={() => handleViewAdDetails(ad)}>
+              <div className="notification-header">
+                <h4 className="notification-title">{ad.title}</h4>
+                {/* <span className={`status-badge ${ad.status}`}>{ad.status === 'pending' ? 'قيد المراجعة' : ad.status === 'approved' ? 'تمت الموافقة' : 'مرفوض'}</span> */}
               </div>
+              <div className="notification-meta">
+                <span className="meta-item">- {ad.advertiser}</span>
+                {/* <span className="meta-sep">•</span> */}
+                <span className="meta-item">- {ad.category}</span>
+                {/* <span className="meta-sep">•</span> */}
+                <span className="meta-item">- {ad.location}</span>
+                {/* <span className="meta-sep">•</span> */}
+                <span className="meta-item">- {formatPrice(ad.price)}</span>
+              </div>
+              <p className="notification-description">{ad.description.length > 100 ? `${ad.description.substring(0, 100)}...` : ad.description}</p>
+              <div className="notification-time">تم التقديم: {formatDate(ad.submittedAt)}</div>
             </div>
           ))}
         </div>
 
-        {/* Pagination Controls */}
         {filteredAdRequests.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '12px' }}>
-            <button
-              className="btn-cancel"
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-            >
-              السابق
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+          <div className="pagination-container">
+            <div className="pagination-info">صفحة {currentPage} من {totalPages}</div>
+            <div className="pagination-controls">
               <button
-                key={page}
-                onClick={() => setCurrentPage(page)}
-                style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #e5e7eb', background: page === currentPage ? '#111827' : 'white', color: page === currentPage ? 'white' : '#111827', fontWeight: 600 }}
+                className="pagination-btn pagination-nav-btn"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
               >
-                {page}
+                السابق
               </button>
-            ))}
-            <button
-              className="btn-submit"
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-            >
-              التالي
-            </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <button
+                  key={page}
+                  className={`pagination-btn ${page === currentPage ? 'active' : ''}`}
+                  onClick={() => setCurrentPage(page)}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                className="pagination-btn pagination-nav-btn"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+              >
+                التالي
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -578,11 +686,15 @@ export default function NotificationsPage() {
         </div>
       )}
 
-      {/* Toasts */}
-      <div style={{ position: 'fixed', bottom: '24px', left: '24px', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 1000 }}>
+      <div className="toast-container">
         {toasts.map(t => (
-          <div key={t.id} style={{ background: t.type === 'success' ? '#10b981' : t.type === 'error' ? '#ef4444' : '#374151', color: 'white', padding: '10px 14px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', fontWeight: 600, minWidth: '220px' }}>
-            {t.message}
+          <div key={t.id} className={`toast ${t.type}`}>
+            <div className="toast-icon">{t.type === 'success' ? '✓' : t.type === 'error' ? '!' : 'ℹ'}</div>
+            <div className="toast-content">
+              <div className="toast-title">إشعار</div>
+              <p className="toast-message">{t.message}</p>
+            </div>
+            <button className="toast-close" onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}>×</button>
           </div>
         ))}
       </div>

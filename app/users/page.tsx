@@ -1603,6 +1603,22 @@ export default function UsersPage() {
           </table>
         </div>
 
+        {/* Mobile Actions */}
+        <div className="table-actions mobile-actions">
+          <button
+            className="btn-add-user"
+            onClick={openAddUserModal}
+          >
+            ➕ إضافة مستخدم
+          </button>
+          <button
+            className="btn-export-table excel"
+            onClick={() => exportToExcel(filteredUsers, 'users-export')}
+          >
+            تصدير Excel
+          </button>
+        </div>
+
         {/* Mobile Cards View */}
         <div className="users-cards-container mobile-view">
           {currentUsers.map((user) => (

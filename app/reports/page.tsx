@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import DateInput from '@/components/DateInput';
 import Image from 'next/image';
 
 export default function ReportsPage() {
@@ -15,6 +16,41 @@ export default function ReportsPage() {
 
   const [appliedFilters, setAppliedFilters] = useState(selectedFilters);
   const [appliedDateRange, setAppliedDateRange] = useState(dateRange);
+
+  const ManagedSelectFilter = ({ options, value, onChange, placeholder, className }: { options: { value: string; label: string }[]; value: string; onChange: (v: string) => void; placeholder: string; className?: string }) => {
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+      const h = (e: MouseEvent) => {
+        if (!ref.current) return;
+        const t = e.target as Node;
+        if (!ref.current.contains(t)) setOpen(false);
+      };
+      document.addEventListener('mousedown', h);
+      return () => document.removeEventListener('mousedown', h);
+    }, []);
+    const currentLabel = value ? (options.find(o => o.value === value)?.label || placeholder) : placeholder;
+    return (
+      <div className={`managed-select ${className ? className : ''}`} ref={ref}>
+        <button type="button" className="managed-select-toggle" onClick={() => setOpen(p => !p)}>
+          <span className={`managed-select-value ${value ? 'filled' : ''}`}>{currentLabel}</span>
+          <span className={`managed-select-caret ${open ? 'open' : ''}`}>▾</span>
+        </button>
+        {open && (
+          <div className="managed-select-menu">
+            <div className={`managed-select-item ${value === '' ? 'selected' : ''}`} onClick={() => { onChange(''); setOpen(false); }}>
+              <span className="managed-select-text">{placeholder}</span>
+            </div>
+            {options.filter(o => o.value !== '').map(opt => (
+              <div key={opt.value} className={`managed-select-item ${value === opt.value ? 'selected' : ''}`} onClick={() => { onChange(opt.value); setOpen(false); }}>
+                <span className="managed-select-text">{opt.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Demo datasets (can be replaced with real API data)
   const usersData = [
@@ -227,76 +263,82 @@ export default function ReportsPage() {
         <div className="filters-container">
           <div className="filter-group">
             <label>من تاريخ</label>
-            <input 
-              type="date" 
+            <DateInput
               value={dateRange.from}
-              onChange={(e) => setDateRange({...dateRange, from: e.target.value})}
+              onChange={(v) => setDateRange({ ...dateRange, from: v })}
               className="filter-input"
             />
           </div>
           <div className="filter-group">
             <label>إلى تاريخ</label>
-            <input 
-              type="date" 
+            <DateInput
               value={dateRange.to}
-              onChange={(e) => setDateRange({...dateRange, to: e.target.value})}
+              onChange={(v) => setDateRange({ ...dateRange, to: v })}
               className="filter-input"
             />
           </div>
           <div className="filter-group">
             <label>القسم</label>
-            <select 
+            <ManagedSelectFilter
+              options={[
+                { value: '', label: 'جميع الأقسام' },
+                { value: 'cars', label: 'سيارات' },
+                { value: 'real-estate', label: 'عقارات' },
+                { value: 'electronics', label: 'إلكترونيات' },
+                { value: 'jobs', label: 'وظائف' }
+              ]}
               value={selectedFilters.category}
-              onChange={(e) => setSelectedFilters({...selectedFilters, category: e.target.value})}
-              className="filter-select"
-            >
-              <option value="">جميع الأقسام</option>
-              <option value="cars">سيارات</option>
-              <option value="real-estate">عقارات</option>
-              <option value="electronics">إلكترونيات</option>
-              <option value="jobs">وظائف</option>
-            </select>
+              onChange={(v) => setSelectedFilters({ ...selectedFilters, category: v })}
+              placeholder={'جميع الأقسام'}
+              className="filter-select-wide"
+            />
           </div>
           <div className="filter-group">
             <label>المدينة</label>
-            <select 
+            <ManagedSelectFilter
+              options={[
+                { value: '', label: 'جميع المدن' },
+                { value: 'cairo', label: 'القاهرة' },
+                { value: 'alexandria', label: 'الإسكندرية' },
+                { value: 'giza', label: 'الجيزة' }
+              ]}
               value={selectedFilters.city}
-              onChange={(e) => setSelectedFilters({...selectedFilters, city: e.target.value})}
-              className="filter-select"
-            >
-              <option value="">جميع المدن</option>
-              <option value="cairo">القاهرة</option>
-              <option value="alexandria">الإسكندرية</option>
-              <option value="giza">الجيزة</option>
-            </select>
+              onChange={(v) => setSelectedFilters({ ...selectedFilters, city: v })}
+              placeholder={'جميع المدن'}
+              className="filter-select-wide"
+            />
           </div>
           <div className="filter-group">
             <label>الحالة</label>
-            <select 
+            <ManagedSelectFilter
+              options={[
+                { value: '', label: 'كل الحالات' },
+                { value: 'active', label: 'نشط' },
+                { value: 'pending', label: 'قيد المراجعة' },
+                { value: 'blocked', label: 'محظور' },
+                { value: 'rejected', label: 'مرفوض' }
+              ]}
               value={selectedFilters.status}
-              onChange={(e) => setSelectedFilters({...selectedFilters, status: e.target.value})}
-              className="filter-select"
-            >
-              <option value="">كل الحالات</option>
-              <option value="active">نشط</option>
-              <option value="pending">قيد المراجعة</option>
-              <option value="blocked">محظور</option>
-              <option value="rejected">مرفوض</option>
-            </select>
+              onChange={(v) => setSelectedFilters({ ...selectedFilters, status: v })}
+              placeholder={'كل الحالات'}
+              className="filter-select-wide"
+            />
           </div>
           {activeTab === 'ads' && (
             <div className="filter-group">
               <label>نوع العرض</label>
-              <select 
+              <ManagedSelectFilter
+                options={[
+                  { value: '', label: 'كل الأنواع' },
+                  { value: 'standard', label: 'عادي' },
+                  { value: 'featured', label: 'مميز' },
+                  { value: 'premium', label: 'ذهبي' }
+                ]}
                 value={selectedFilters.displayType}
-                onChange={(e) => setSelectedFilters({...selectedFilters, displayType: e.target.value})}
-                className="filter-select"
-              >
-                <option value="">كل الأنواع</option>
-                <option value="standard">عادي</option>
-                <option value="featured">مميز</option>
-                <option value="premium">ذهبي</option>
-              </select>
+                onChange={(v) => setSelectedFilters({ ...selectedFilters, displayType: v })}
+                placeholder={'كل الأنواع'}
+                className="filter-select-wide"
+              />
             </div>
           )}
           <button className="btn-filter" onClick={handleApplyFilters}>

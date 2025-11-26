@@ -82,9 +82,7 @@ export default function ReportsReviewPage() {
     return hasReason && matchesCategory && matchesStatus && matchesSearch;
   });
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [reasonFilter, categoryFilter, statusFilter, searchTerm]);
+  
 
   const totalPages = Math.ceil(filteredAds.length / ITEMS_PER_PAGE) || 1;
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -100,7 +98,7 @@ export default function ReportsReviewPage() {
   };
 
   return (
-    <div className="page-container">
+    <div className="page-container reports-review-page">
       <div className="reports-review-header">
         <div className="header-content">
           <div className="title-section">
@@ -127,7 +125,7 @@ export default function ReportsReviewPage() {
           <label className="filter-label">سبب البلاغ</label>
           <select
             value={reasonFilter}
-            onChange={(e) => setReasonFilter(e.target.value)}
+            onChange={(e) => { setReasonFilter(e.target.value); setCurrentPage(1); }}
             className="form-select"
           >
             <option value="">كل الأسباب</option>
@@ -140,7 +138,7 @@ export default function ReportsReviewPage() {
           <label className="filter-label">القسم</label>
           <select
             value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+            onChange={(e) => { setCategoryFilter(e.target.value); setCurrentPage(1); }}
             className="form-select"
           >
             <option value="">كل الأقسام</option>
@@ -153,7 +151,7 @@ export default function ReportsReviewPage() {
           <label className="filter-label">الحالة</label>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
             className="form-select"
           >
             <option value="">كل الحالات</option>
@@ -167,7 +165,7 @@ export default function ReportsReviewPage() {
           <input
             type="text"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             placeholder="العنوان أو كود المعلن"
             className="form-input"
           />
@@ -190,35 +188,32 @@ export default function ReportsReviewPage() {
           <tbody>
             {currentAds.map((ad) => (
               <tr key={ad.id}>
-                <td className="ad-title-cell">{ad.title}</td>
-                <td>{ad.category}</td>
-                <td>
+                <td className="ad-title-cell" data-label="العنوان">{ad.title}</td>
+                <td data-label="القسم">{ad.category}</td>
+                <td data-label="الحالة">
                   <span className="status-badge">{ad.status}</span>
                 </td>
-                <td>
+                <td data-label="كود المعلن">
                   <span className="owner-code-badge">{ad.ownerCode}</span>
                 </td>
                 
-                <td className="cell-muted">{ad.createdDate}</td>
-                <td>
+                <td className="cell-muted" data-label="تاريخ الإنشاء">{ad.createdDate}</td>
+                <td data-label="الأسباب">
                   <div className="reasons-list">
                     {ad.reports.map((r, idx) => (
                       <span key={idx} className="reason-badge">{r.reason}</span>
                     ))}
                   </div>
                 </td>
-                <td>
+                <td data-label="إجراءات">
                   <div className="action-buttons reports-actions">
                     <button className="btn-approve" title="موافقة" onClick={() => approveReport(ad.id)}>
-                      
                       <span className="btn-text">موافقة</span>
                     </button>
                     <button className="btn-reject" title="رفض" onClick={() => rejectReport(ad.id)}>
-                      
                       <span className="btn-text">رفض</span>
                     </button>
                     <button className="btn-view" title="عرض" onClick={() => (window.location.href = `/ads/${ad.id}`)}>
-                     
                       <span className="btn-text">عرض</span>
                     </button>
                   </div>

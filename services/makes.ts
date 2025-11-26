@@ -1,4 +1,4 @@
-import type { CarMakesResponse, MakeItem, CategoryField } from '@/models/makes';
+import type { CarMakesResponse, MakeItem, CategoryField, GovernorateItem } from '@/models/makes';
 
 function toArray(x: unknown): unknown[] {
   return Array.isArray(x) ? x : [];
@@ -153,6 +153,91 @@ export async function fetchCategoryFields(categorySlug: string, token?: string):
         const v = obj[k];
         const options = normalizeOptions(v);
         if (options.length) out.push({ field_name: k, options });
+      }
+    }
+  }
+  return out;
+}
+
+export async function fetchGovernorates(token?: string): Promise<GovernorateItem[]> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const res = await fetch('https://api.nasmasr.app/api/governorates', { method: 'GET', headers });
+  const raw = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok || !raw) {
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر جلب المحافظات والمدن';
+    throw new Error(message);
+  }
+  const out: GovernorateItem[] = [];
+  const pushGov = (o: Record<string, unknown>) => {
+    const nameRaw = o['name'] ?? o['governorate'] ?? o['title'];
+    const name = typeof nameRaw === 'string' || typeof nameRaw === 'number' ? String(nameRaw).trim() : '';
+    const cities = normalizeModels(o['cities']);
+    if (name) out.push({ name, cities });
+  };
+  if (Array.isArray(raw)) {
+    for (const it of raw) {
+      if (it && typeof it === 'object') pushGov(it as Record<string, unknown>);
+    }
+  } else if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    const arr = obj['governorates'] ?? obj['data'];
+    if (Array.isArray(arr)) {
+      for (const it of arr) {
+        if (it && typeof it === 'object') pushGov(it as Record<string, unknown>);
+      }
+    } else {
+      const keys = Object.keys(obj);
+      for (const k of keys) {
+        const v = obj[k];
+        const cities = normalizeModels(v);
+        if (cities.length) out.push({ name: k, cities });
+      }
+    }
+  }
+  return out;
+}
+
+export async function postAdminGovernorates(payload: { name: string; cities: unknown[] }, token?: string): Promise<GovernorateItem[]> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const body = JSON.stringify({ name: payload.name, cities: payload.cities });
+  const res = await fetch('https://api.nasmasr.app/api/admin/governorates', { method: 'POST', headers, body });
+  const raw = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok || !raw) {
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر حفظ المحافظات والمدن';
+    throw new Error(message);
+  }
+  const out: GovernorateItem[] = [];
+  const pushGov = (o: Record<string, unknown>) => {
+    const nameRaw = o['name'] ?? o['governorate'] ?? o['title'];
+    const name = typeof nameRaw === 'string' || typeof nameRaw === 'number' ? String(nameRaw).trim() : '';
+    const cities = normalizeModels(o['cities']);
+    if (name) out.push({ name, cities });
+  };
+  if (Array.isArray(raw)) {
+    for (const it of raw) {
+      if (it && typeof it === 'object') pushGov(it as Record<string, unknown>);
+    }
+  } else if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    const arr = obj['governorates'] ?? obj['data'];
+    if (Array.isArray(arr)) {
+      for (const it of arr) {
+        if (it && typeof it === 'object') pushGov(it as Record<string, unknown>);
+      }
+    } else if (obj['id'] || obj['name'] || obj['cities']) {
+      pushGov(obj);
+    } else {
+      const keys = Object.keys(obj);
+      for (const k of keys) {
+        const v = obj[k];
+        const cities = normalizeModels(v);
+        if (cities.length) out.push({ name: k, cities });
       }
     }
   }

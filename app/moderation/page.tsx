@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 
 interface Ad {
@@ -716,6 +716,41 @@ export default function ModerationPage() {
   // حساب إجمالي الإعلانات
   const totalAdsCount = ads.length;
 
+  const CategorySelect = ({ options, value, onChange, placeholder, getCount, className }: { options: string[]; value: string; onChange: (v: string) => void; placeholder: string; getCount: (cat: string) => number; className?: string }) => {
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+      const h = (e: MouseEvent) => {
+        if (!ref.current) return;
+        const t = e.target as Node;
+        if (!ref.current.contains(t)) setOpen(false);
+      };
+      document.addEventListener('mousedown', h);
+      return () => document.removeEventListener('mousedown', h);
+    }, []);
+    return (
+      <div className={`managed-select ${className ? className : ''}`} ref={ref}>
+        <button type="button" className="managed-select-toggle" onClick={() => setOpen(p => !p)}>
+          <span className={`managed-select-value ${value ? 'filled' : ''}`}>{value || placeholder}</span>
+          <span className={`managed-select-caret ${open ? 'open' : ''}`}>▾</span>
+        </button>
+        {open && (
+          <div className="managed-select-menu">
+            <div className={`managed-select-item ${value === '' ? 'selected' : ''}`} onClick={() => { onChange(''); setOpen(false); }}>
+              <span className="managed-select-text">{placeholder}</span>
+            </div>
+            {options.map(opt => (
+              <div key={opt} className={`managed-select-item ${value === opt ? 'selected' : ''}`} onClick={() => { onChange(opt); setOpen(false); }}>
+                <span className="managed-select-text">{opt}</span>
+                <span className="managed-select-badge">{getCount(opt)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // State variables for modals and forms
   const [actionType, setActionType] = useState<'approve' | 'reject' | 'modify'>('reject');
   const [reasonTargetAdId, setReasonTargetAdId] = useState<string | null>(null);
@@ -992,25 +1027,23 @@ export default function ModerationPage() {
         <div className="queue-section">
           <div className="queue-header">
             <h2>مراجعة وإدارة الإعلانات المرسلة </h2>
-            <div className="pending-counter">
+            {/* <div className="pending-counter">
             <div className="counter-badge">
               <span className="counter-number">{pendingAdsCount}</span>
               <span className="counter-label">إعلان قيد المراجعة</span>
             </div>
-          </div>
-            <div className="queue-filters">
-              <label className="filter-label">القسم</label>
-              <select className="filter-select" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-                <option value="">
-                  كل الأقسام ({totalAdsCount})
-                </option>
-                {uniqueCategories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat} ({getCategoryCount(cat)})
-                  </option>
-                ))}
-              </select>
-            </div>
+          </div> */}
+            {/* <div className="queue-filters"> */}
+              {/* <label className="filter-label">القسم</label> */}
+              <CategorySelect
+                options={uniqueCategories}
+                value={categoryFilter}
+                onChange={(v) => setCategoryFilter(v)}
+                placeholder={`كل الأقسام (${totalAdsCount})`}
+                getCount={getCategoryCount}
+                className="category-select-wide"
+              />
+            {/* </div> */}
           </div>
 
           <div className="ads-queue">
