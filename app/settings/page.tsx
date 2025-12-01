@@ -173,9 +173,9 @@ export default function SettingsPage() {
     <div className="settings-section">
       <h3 className="section-title">الإعدادات العامة</h3>
       
-      <div className="settings-group">
-        <h4 className="group-title">سياسات الخصوصية والشروط</h4>
-        <div className="form-group">
+      {/* <div className="settings-group">
+        <h4 className="group-title">سياسات الخصوصية والشروط</h4> */}
+        {/* <div className="form-group">
           <label htmlFor="privacyPolicy">سياسة الخصوصية</label>
           <textarea
             id="privacyPolicy"
@@ -185,8 +185,8 @@ export default function SettingsPage() {
             onChange={(e) => setSettings(prev => ({ ...prev, privacyPolicy: e.target.value }))}
             placeholder="أدخل نص سياسة الخصوصية..."
           />
-        </div>
-        <div className="form-group">
+        </div> */}
+        {/* <div className="form-group">
           <label htmlFor="termsOfService">شروط الخدمة</label>
           <textarea
             id="termsOfService"
@@ -196,13 +196,13 @@ export default function SettingsPage() {
             onChange={(e) => setSettings(prev => ({ ...prev, termsOfService: e.target.value }))}
             placeholder="أدخل نص شروط الخدمة..."
           />
-        </div>
-      </div>
+        </div> */}
+      {/* </div> */}
 
-      <div className="settings-group">
+      {/* <div className="settings-group">
         <h4 className="group-title">روابط التواصل الاجتماعي</h4>
-        <div className="form-grid">
-          <div className="form-group">
+        <div className="form-grid"> */}
+          {/* <div className="form-group">
             <label htmlFor="facebook">فيسبوك</label>
             <input
               type="url"
@@ -212,8 +212,8 @@ export default function SettingsPage() {
               onChange={(e) => handleInputChange('contactLinks', 'facebook', e.target.value)}
               placeholder="https://facebook.com/..."
             />
-          </div>
-          <div className="form-group">
+          </div> */}
+          {/* <div className="form-group">
             <label htmlFor="twitter">تويتر</label>
             <input
               type="url"
@@ -223,8 +223,8 @@ export default function SettingsPage() {
               onChange={(e) => handleInputChange('contactLinks', 'twitter', e.target.value)}
               placeholder="https://twitter.com/..."
             />
-          </div>
-          <div className="form-group">
+          </div> */}
+          {/* <div className="form-group">
             <label htmlFor="instagram">إنستغرام</label>
             <input
               type="url"
@@ -234,7 +234,7 @@ export default function SettingsPage() {
               onChange={(e) => handleInputChange('contactLinks', 'instagram', e.target.value)}
               placeholder="https://instagram.com/..."
             />
-          </div>
+          </div> */}
           {/* <div className="form-group">
             <label htmlFor="whatsapp">واتساب</label>
             <input
@@ -246,7 +246,7 @@ export default function SettingsPage() {
               placeholder="+20 1XX XXX XXXX"
             />
           </div> */}
-          <div className="form-group">
+          {/* <div className="form-group">
             <label htmlFor="email">البريد الإلكتروني</label>
             <input
               type="email"
@@ -256,7 +256,7 @@ export default function SettingsPage() {
               onChange={(e) => handleInputChange('contactLinks', 'email', e.target.value)}
               placeholder="contact@example.com"
             />
-          </div>
+          </div> */}
           {/* <div className="form-group">
             <label htmlFor="phone">الهاتف</label>
             <input
@@ -268,8 +268,8 @@ export default function SettingsPage() {
               placeholder="+20 2 XXXX XXXX"
             />
           </div> */}
-        </div>
-      </div>
+        {/* </div>
+      </div> */}
 
       <div className="settings-group">
         <h4 className="group-title">أرقام الدعم</h4>

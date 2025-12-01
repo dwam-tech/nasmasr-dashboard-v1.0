@@ -160,3 +160,30 @@ export interface AdminMakeListItem {
   name: string;
   models: string[];
 }
+
+export interface AdminMainSectionRecord {
+  id: number;
+  category_id: number;
+  name: string;
+  sort_order?: number;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  sub_sections?: AdminSubSectionRecord[];
+}
+
+export interface AdminSubSectionRecord {
+  id: number;
+  category_id: number;
+  main_section_id: number;
+  name: string;
+  sort_order?: number;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AdminSubSectionsResponse {
+  main_section_id: number;
+  sub_sections: AdminSubSectionRecord[];
+}

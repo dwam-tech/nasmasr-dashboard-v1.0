@@ -1,4 +1,4 @@
-import type { CarMakesResponse, MakeItem, CategoryField, GovernorateItem, CityItem, CategorySlug, CategoryFieldMapBySlug, AdminCategoryFieldUpdateRequest, AdminCategoryFieldApiResponse, AdminMakeCreateResponse, AdminMakeModelsResponse, AdminMakeListItem } from '@/models/makes';
+import type { CarMakesResponse, MakeItem, CategoryField, GovernorateItem, CityItem, CategorySlug, CategoryFieldMapBySlug, AdminCategoryFieldUpdateRequest, AdminCategoryFieldApiResponse, AdminMakeCreateResponse, AdminMakeModelsResponse, AdminMakeListItem, AdminMainSectionRecord, AdminSubSectionsResponse, AdminSubSectionRecord, AdminModelRecord } from '@/models/makes';
 
 function toArray(x: unknown): unknown[] {
   return Array.isArray(x) ? x : [];
@@ -144,9 +144,9 @@ export async function fetchCategoryFields(categorySlug: CategorySlug | string, t
   const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (t) headers.Authorization = `Bearer ${t}`;
-  const urlAdmin = `https://api.nasmasr.app/api/admin/category-fields/api/category-fields?category_slug=${encodeURIComponent(categorySlug)}`;
+  const urlAdmin = `https://api.nasmasr.app/api/category-fields?category_slug=${encodeURIComponent(categorySlug)}`;
   const urlOld = `https://api.nasmasr.app/api/category-fields?category_slug=${encodeURIComponent(categorySlug)}`;
-  const urlNew = `https://api.nasmasr.app/api/api/category-fields?category_slug=${encodeURIComponent(categorySlug)}`;
+  const urlNew = `https://api.nasmasr.app/api/category-fields?category_slug=${encodeURIComponent(categorySlug)}`;
   let res = await fetch(t ? urlAdmin : urlOld, { method: 'GET', headers });
   let raw = (await res.json().catch(() => null)) as unknown;
   if (!res.ok || !raw) {
@@ -240,9 +240,9 @@ export async function fetchCategoryMainSubs(slug: CategorySlug | string, token?:
   const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (t) headers.Authorization = `Bearer ${t}`;
-  const urlAdmin = `https://api.nasmasr.app/api/admin/category-fields/api/category-fields?category_slug=${encodeURIComponent(String(slug))}`;
+  const urlAdmin = `https://api.nasmasr.app/api/category-fields?category_slug=${encodeURIComponent(String(slug))}`;
   const urlOld = `https://api.nasmasr.app/api/category-fields?category_slug=${encodeURIComponent(String(slug))}`;
-  const urlNew = `https://api.nasmasr.app/api/api/category-fields?category_slug=${encodeURIComponent(String(slug))}`;
+  const urlNew = `https://api.nasmasr.app/api/category-fields?category_slug=${encodeURIComponent(String(slug))}`;
   let res = await fetch(t ? urlAdmin : urlOld, { method: 'GET', headers });
   let raw = (await res.json().catch(() => null)) as unknown;
   if (!res.ok || !raw) {
@@ -415,7 +415,7 @@ export async function fetchAdminMakesWithIds(token?: string): Promise<AdminMakeL
   const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (t) headers.Authorization = `Bearer ${t}`;
-  const url = 'https://api.nasmasr.app/api/admin/makes';
+  const url = 'https://api.nasmasr.app/api/makes';
   const res = await fetch(url, { method: 'GET', headers });
   const raw = (await res.json().catch(() => null)) as unknown;
   if (!res.ok || !raw) {
@@ -519,6 +519,412 @@ export async function postAdminMakeModels(makeId: number, models: string[], toke
   return { make_id: mid, models: list } as AdminMakeModelsResponse;
 }
 
+export async function updateAdminMake(makeId: number, name: string, token?: string): Promise<AdminMakeCreateResponse> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = `https://api.nasmasr.app/api/admin/makes/${makeId}`;
+  const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify({ name }) });
+  const raw = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok || !raw || typeof raw !== 'object') {
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر تعديل الماركة';
+    throw new Error(message);
+  }
+  const o = raw as Record<string, unknown>;
+  const id = typeof o['id'] === 'number' ? (o['id'] as number) : makeId;
+  const nameOut = normalizeString(o['name']) ?? name;
+  const models = normalizeModels(o['models']);
+  const created_at = typeof o['created_at'] === 'string' ? (o['created_at'] as string) : undefined;
+  const updated_at = typeof o['updated_at'] === 'string' ? (o['updated_at'] as string) : undefined;
+  return { id, name: String(nameOut), models, created_at, updated_at };
+}
+
+export async function deleteAdminMake(makeId: number, token?: string): Promise<void> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = `https://api.nasmasr.app/api/admin/makes/${makeId}`;
+  const res = await fetch(url, { method: 'DELETE', headers });
+  if (!res.ok) {
+    const raw = (await res.json().catch(() => null)) as unknown;
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر حذف الماركة';
+    throw new Error(message);
+  }
+}
+
+export async function updateAdminModel(modelId: number, name: string, make_id: number, token?: string): Promise<AdminModelRecord> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = `https://api.nasmasr.app/api/admin/models/${modelId}`;
+  const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify({ name, make_id }) });
+  const raw = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok || !raw || typeof raw !== 'object') {
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر تعديل الموديل';
+    throw new Error(message);
+  }
+  const o = raw as Record<string, unknown>;
+  const id = typeof o['id'] === 'number' ? (o['id'] as number) : modelId;
+  const nameOut = normalizeString(o['name']) ?? name;
+  const mk = typeof o['make_id'] === 'number' ? (o['make_id'] as number) : make_id;
+  const created_at = typeof o['created_at'] === 'string' ? (o['created_at'] as string) : undefined;
+  const updated_at = typeof o['updated_at'] === 'string' ? (o['updated_at'] as string) : undefined;
+  return { id, name: String(nameOut), make_id: mk, created_at, updated_at };
+}
+
+export async function deleteAdminModel(modelId: number, token?: string): Promise<void> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = `https://api.nasmasr.app/api/admin/models/${modelId}`;
+  const res = await fetch(url, { method: 'DELETE', headers });
+  if (!res.ok) {
+    const raw = (await res.json().catch(() => null)) as unknown;
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر حذف الموديل';
+    throw new Error(message);
+  }
+}
+
+export async function fetchMakeModels(makeId: number | string, token?: string): Promise<AdminModelRecord[]> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = `https://api.nasmasr.app/api/admin/makes/${makeId}/models`;
+  const res = await fetch(url, { method: 'GET', headers });
+  const raw = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok || !raw) {
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر جلب الموديلات';
+    throw new Error(message);
+  }
+  const out: AdminModelRecord[] = [];
+  const pushParsed = (o: Record<string, unknown>) => {
+    const id = typeof o['id'] === 'number' ? (o['id'] as number) : undefined;
+    const name = normalizeString(o['name']) ?? normalizeString(o['model']) ?? '';
+    const mk = typeof o['make_id'] === 'number' ? (o['make_id'] as number) : (typeof makeId === 'number' ? makeId : undefined);
+    const created_at = typeof o['created_at'] === 'string' ? (o['created_at'] as string) : undefined;
+    const updated_at = typeof o['updated_at'] === 'string' ? (o['updated_at'] as string) : undefined;
+    if (typeof id === 'number' && name) out.push({ id, name: String(name), make_id: mk ?? 0, created_at, updated_at });
+  };
+  if (Array.isArray(raw)) {
+    for (const it of raw) {
+      if (it && typeof it === 'object') pushParsed(it as Record<string, unknown>);
+    }
+  } else if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    const arr = obj['models'] ?? obj['data'];
+    if (Array.isArray(arr)) {
+      for (const it of arr) {
+        if (it && typeof it === 'object') pushParsed(it as Record<string, unknown>);
+      }
+    } else {
+      pushParsed(obj);
+    }
+  }
+  return out;
+}
+
+export function buildAdminMainSectionUrl(slug: string): string {
+  return `https://api.nasmasr.app/api/admin/main-section/${encodeURIComponent(String(slug))}`;
+}
+
+export function buildMainSectionsListUrl(slug: string): string {
+  const url = new URL('https://api.nasmasr.app/api/main-sections');
+  url.searchParams.set('category_slug', String(slug));
+  return url.toString();
+}
+
+export function buildAdminSubSectionUrl(mainSectionId: number | string): string {
+  return `https://api.nasmasr.app/api/admin/sub-section/${mainSectionId}`;
+}
+
+export function buildAdminMainSectionIdUrl(mainSectionId: number | string): string {
+  return `https://api.nasmasr.app/api/admin/main-section/${mainSectionId}`;
+}
+
+export function buildAdminSubSectionIdUrl(subSectionId: number | string): string {
+  return `https://api.nasmasr.app/api/admin/sub-section/${subSectionId}`;
+}
+
+export async function postAdminMainSection(slug: CategorySlug | string, name: string, token?: string): Promise<AdminMainSectionRecord> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = buildAdminMainSectionUrl(String(slug));
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ name }) });
+  const raw = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok || !raw || typeof raw !== 'object') {
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر إضافة الرئيسي';
+    throw new Error(message);
+  }
+  const o = raw as Record<string, unknown>;
+  const id = typeof o['id'] === 'number' ? (o['id'] as number) : 0;
+  const category_id = typeof o['category_id'] === 'number' ? (o['category_id'] as number) : 0;
+  const nameOut = normalizeString(o['name']) ?? name;
+  const sort_order = typeof o['sort_order'] === 'number' ? (o['sort_order'] as number) : undefined;
+  const is_active = typeof o['is_active'] === 'boolean' ? (o['is_active'] as boolean) : undefined;
+  const created_at = typeof o['created_at'] === 'string' ? (o['created_at'] as string) : undefined;
+  const updated_at = typeof o['updated_at'] === 'string' ? (o['updated_at'] as string) : undefined;
+  const subRaw = o['sub_sections'];
+  let sub_sections: AdminSubSectionRecord[] | undefined = undefined;
+  if (Array.isArray(subRaw)) {
+    const list: AdminSubSectionRecord[] = [];
+    for (const it of subRaw) {
+      if (it && typeof it === 'object') {
+        const so = it as Record<string, unknown>;
+        const sid = typeof so['id'] === 'number' ? (so['id'] as number) : 0;
+        const scid = typeof so['category_id'] === 'number' ? (so['category_id'] as number) : category_id;
+        const smid = typeof so['main_section_id'] === 'number' ? (so['main_section_id'] as number) : id;
+        const sname = normalizeString(so['name']) ?? '';
+        const ssort = typeof so['sort_order'] === 'number' ? (so['sort_order'] as number) : undefined;
+        const sactive = typeof so['is_active'] === 'boolean' ? (so['is_active'] as boolean) : undefined;
+        const screated = typeof so['created_at'] === 'string' ? (so['created_at'] as string) : undefined;
+        const supdated = typeof so['updated_at'] === 'string' ? (so['updated_at'] as string) : undefined;
+        if (sname) list.push({ id: sid, category_id: scid, main_section_id: smid, name: sname, sort_order: ssort, is_active: sactive, created_at: screated, updated_at: supdated });
+      }
+    }
+    sub_sections = list;
+  }
+  return { id, category_id, name: String(nameOut), sort_order, is_active, created_at, updated_at, sub_sections } as AdminMainSectionRecord;
+}
+
+export async function postAdminSubSections(mainSectionId: number, subSections: string[], token?: string): Promise<AdminSubSectionsResponse> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const uniq = Array.from(new Set(subSections.map((x) => String(x).trim()).filter(Boolean)));
+  const url = buildAdminSubSectionUrl(mainSectionId);
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ sub_sections: uniq }) });
+  const raw = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok || !raw || typeof raw !== 'object') {
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر إضافة الفرعيات';
+    throw new Error(message);
+  }
+  const o = raw as Record<string, unknown>;
+  const mid = typeof o['main_section_id'] === 'number' ? (o['main_section_id'] as number) : mainSectionId;
+  const outList: AdminSubSectionRecord[] = [];
+  const arr = o['sub_sections'];
+  if (Array.isArray(arr)) {
+    for (const it of arr) {
+      if (it && typeof it === 'object') {
+        const so = it as Record<string, unknown>;
+        const id = typeof so['id'] === 'number' ? (so['id'] as number) : 0;
+        const category_id = typeof so['category_id'] === 'number' ? (so['category_id'] as number) : undefined;
+        const main_section_id = typeof so['main_section_id'] === 'number' ? (so['main_section_id'] as number) : mid;
+        const name = normalizeString(so['name']) ?? '';
+        const sort_order = typeof so['sort_order'] === 'number' ? (so['sort_order'] as number) : undefined;
+        const is_active = typeof so['is_active'] === 'boolean' ? (so['is_active'] as boolean) : undefined;
+        const created_at = typeof so['created_at'] === 'string' ? (so['created_at'] as string) : undefined;
+        const updated_at = typeof so['updated_at'] === 'string' ? (so['updated_at'] as string) : undefined;
+        if (name) outList.push({ id, category_id: category_id ?? 0, main_section_id, name, sort_order, is_active, created_at, updated_at });
+      }
+    }
+  }
+  return { main_section_id: mid, sub_sections: outList } as AdminSubSectionsResponse;
+}
+
+export async function fetchAdminSubSections(mainSectionId: number | string, token?: string): Promise<AdminSubSectionRecord[]> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = buildAdminSubSectionUrl(mainSectionId);
+  const res = await fetch(url, { method: 'GET', headers });
+  const raw = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok || !raw) {
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر جلب الفرعيات';
+    throw new Error(message);
+  }
+  const out: AdminSubSectionRecord[] = [];
+  const pushParsed = (it: unknown) => {
+    if (it && typeof it === 'object') {
+      const o = it as Record<string, unknown>;
+      const id = typeof o['id'] === 'number' ? (o['id'] as number) : 0;
+      const category_id = typeof o['category_id'] === 'number' ? (o['category_id'] as number) : 0;
+      const main_section_id = typeof o['main_section_id'] === 'number' ? (o['main_section_id'] as number) : (typeof mainSectionId === 'number' ? mainSectionId : 0);
+      const name = normalizeString(o['name']) ?? '';
+      const sort_order = typeof o['sort_order'] === 'number' ? (o['sort_order'] as number) : undefined;
+      const is_active = typeof o['is_active'] === 'boolean' ? (o['is_active'] as boolean) : undefined;
+      const created_at = typeof o['created_at'] === 'string' ? (o['created_at'] as string) : undefined;
+      const updated_at = typeof o['updated_at'] === 'string' ? (o['updated_at'] as string) : undefined;
+      if (name) out.push({ id, category_id, main_section_id, name, sort_order, is_active, created_at, updated_at });
+    }
+  };
+  if (Array.isArray(raw)) {
+    for (const it of raw) pushParsed(it);
+  } else if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    const arr = obj['sub_sections'] ?? obj['data'];
+    if (Array.isArray(arr)) {
+      for (const it of arr) pushParsed(it);
+    } else {
+      pushParsed(raw);
+    }
+  }
+  return out;
+}
+
+export async function deleteAdminMainSection(mainSectionId: number, token?: string): Promise<void> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = buildAdminMainSectionIdUrl(mainSectionId);
+  const res = await fetch(url, { method: 'DELETE', headers });
+  if (!res.ok) {
+    const raw = (await res.json().catch(() => null)) as unknown;
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر حذف الرئيسي';
+    throw new Error(message);
+  }
+}
+
+export async function deleteAdminSubSection(subSectionId: number, token?: string): Promise<void> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = buildAdminSubSectionIdUrl(subSectionId);
+  const res = await fetch(url, { method: 'DELETE', headers });
+  if (!res.ok) {
+    const raw = (await res.json().catch(() => null)) as unknown;
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر حذف الفرعي';
+    throw new Error(message);
+  }
+}
+
+export async function fetchAdminMainSections(slug: CategorySlug | string, token?: string): Promise<AdminMainSectionRecord[]> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = buildMainSectionsListUrl(String(slug));
+  const res = await fetch(url, { method: 'GET', headers });
+  const raw = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok || !raw) {
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر جلب الرئيسي والفرعي';
+    throw new Error(message);
+  }
+  const out: AdminMainSectionRecord[] = [];
+  const pushParsed = (it: unknown) => {
+    if (it && typeof it === 'object') {
+      const o = it as Record<string, unknown>;
+      const id = typeof o['id'] === 'number' ? (o['id'] as number) : 0;
+      const category_id = typeof o['category_id'] === 'number' ? (o['category_id'] as number) : 0;
+      const name = normalizeString(o['name']) ?? '';
+      const sort_order = typeof o['sort_order'] === 'number' ? (o['sort_order'] as number) : undefined;
+      const is_active = typeof o['is_active'] === 'boolean' ? (o['is_active'] as boolean) : undefined;
+      const created_at = typeof o['created_at'] === 'string' ? (o['created_at'] as string) : undefined;
+      const updated_at = typeof o['updated_at'] === 'string' ? (o['updated_at'] as string) : undefined;
+      let sub_sections: AdminSubSectionRecord[] | undefined = undefined;
+      const subsRaw = o['sub_sections'];
+      if (Array.isArray(subsRaw)) {
+        const list: AdminSubSectionRecord[] = [];
+        for (const s of subsRaw) {
+          if (s && typeof s === 'object') {
+            const so = s as Record<string, unknown>;
+            const sid = typeof so['id'] === 'number' ? (so['id'] as number) : 0;
+            const scid = typeof so['category_id'] === 'number' ? (so['category_id'] as number) : category_id;
+            const smid = typeof so['main_section_id'] === 'number' ? (so['main_section_id'] as number) : id;
+            const sname = normalizeString(so['name']) ?? '';
+            const ssort = typeof so['sort_order'] === 'number' ? (so['sort_order'] as number) : undefined;
+            const sactive = typeof so['is_active'] === 'boolean' ? (so['is_active'] as boolean) : undefined;
+            const screated = typeof so['created_at'] === 'string' ? (so['created_at'] as string) : undefined;
+            const supdated = typeof so['updated_at'] === 'string' ? (so['updated_at'] as string) : undefined;
+            if (sname) list.push({ id: sid, category_id: scid, main_section_id: smid, name: sname, sort_order: ssort, is_active: sactive, created_at: screated, updated_at: supdated });
+          }
+        }
+        sub_sections = list;
+      }
+      if (name) out.push({ id, category_id, name, sort_order, is_active, created_at, updated_at, sub_sections });
+    }
+  };
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    const arr1 = obj['main_sections'];
+    const arr2 = Array.isArray(obj) ? (raw as unknown[]) : undefined;
+    if (Array.isArray(arr1)) {
+      for (const it of arr1) pushParsed(it);
+    } else if (Array.isArray(arr2)) {
+      for (const it of arr2) pushParsed(it);
+    } else {
+      pushParsed(raw);
+    }
+  }
+  return out;
+}
+
+export async function fetchAdminMainSectionsBatch(slugs: (CategorySlug | string)[], token?: string): Promise<Record<string, AdminMainSectionRecord[]>> {
+  const tasks = slugs.map(async (s) => {
+    try {
+      const arr = await fetchAdminMainSections(s, token);
+      return [s, arr] as const;
+    } catch {
+      return [s, []] as const;
+    }
+  });
+  const entries = await Promise.all(tasks);
+  return Object.fromEntries(entries);
+}
+
+export async function updateAdminMainSection(mainSectionId: number, name: string, token?: string): Promise<AdminMainSectionRecord> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = buildAdminMainSectionIdUrl(mainSectionId);
+  const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify({ name }) });
+  const raw = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok || !raw || typeof raw !== 'object') {
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر تعديل الرئيسي';
+    throw new Error(message);
+  }
+  const o = raw as Record<string, unknown>;
+  const id = typeof o['id'] === 'number' ? (o['id'] as number) : mainSectionId;
+  const category_id = typeof o['category_id'] === 'number' ? (o['category_id'] as number) : undefined;
+  const nameOut = normalizeString(o['name']) ?? name;
+  const sort_order = typeof o['sort_order'] === 'number' ? (o['sort_order'] as number) : undefined;
+  const is_active = typeof o['is_active'] === 'boolean' ? (o['is_active'] as boolean) : undefined;
+  const created_at = typeof o['created_at'] === 'string' ? (o['created_at'] as string) : undefined;
+  const updated_at = typeof o['updated_at'] === 'string' ? (o['updated_at'] as string) : undefined;
+  return { id, category_id: category_id ?? 0, name: String(nameOut), sort_order, is_active, created_at, updated_at } as AdminMainSectionRecord;
+}
+
+export async function updateAdminSubSection(subSectionId: number, name: string, token?: string): Promise<AdminSubSectionRecord> {
+  const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
+  const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const url = buildAdminSubSectionIdUrl(subSectionId);
+  const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify({ name }) });
+  const raw = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok || !raw || typeof raw !== 'object') {
+    const err = raw as { error?: string; message?: string } | null;
+    const message = err?.error || err?.message || 'تعذر تعديل الفرعي';
+    throw new Error(message);
+  }
+  const o = raw as Record<string, unknown>;
+  const id = typeof o['id'] === 'number' ? (o['id'] as number) : subSectionId;
+  const category_id = typeof o['category_id'] === 'number' ? (o['category_id'] as number) : undefined;
+  const main_section_id = typeof o['main_section_id'] === 'number' ? (o['main_section_id'] as number) : undefined;
+  const nameOut = normalizeString(o['name']) ?? name;
+  const sort_order = typeof o['sort_order'] === 'number' ? (o['sort_order'] as number) : undefined;
+  const is_active = typeof o['is_active'] === 'boolean' ? (o['is_active'] as boolean) : undefined;
+  const created_at = typeof o['created_at'] === 'string' ? (o['created_at'] as string) : undefined;
+  const updated_at = typeof o['updated_at'] === 'string' ? (o['updated_at'] as string) : undefined;
+  return { id, category_id: category_id ?? 0, main_section_id: main_section_id ?? 0, name: String(nameOut), sort_order, is_active, created_at, updated_at } as AdminSubSectionRecord;
+}
+
 export async function addOptionRemote(slug: CategorySlug | string, field_name: string, option: string, currentOptions: string[], token?: string): Promise<string[]> {
   const next = Array.from(new Set([...currentOptions, option].map((x) => String(x).trim()).filter(Boolean)));
   return updateCategoryFieldOptions(slug, field_name, next, token);
@@ -540,7 +946,7 @@ export async function fetchGovernorates(token?: string): Promise<GovernorateItem
   const t = token ?? (typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined);
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (t) headers.Authorization = `Bearer ${t}`;
-  const adminUrl = 'https://api.nasmasr.app/api/admin/governorates';
+  const adminUrl = 'https://api.nasmasr.app/api/governorates';
   const publicUrl = 'https://api.nasmasr.app/api/governorates';
   let res = await fetch(t ? adminUrl : publicUrl, { method: 'GET', headers });
   let raw = (await res.json().catch(() => null)) as unknown;

@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { fetchUsersSummary, updateUser, toggleUserBlock, deleteUser, createUser, changeUserPassword, createUserOtp, fetchUserListings, fetchCategories, assignUserPackage, setUserFeaturedCategories, disableUserFeatured } from '@/services/users';
+import { fetchUsersSummary, fetchUsersSummaryPage, updateUser, toggleUserBlock, deleteUser, createUser, changeUserPassword, createUserOtp, fetchUserListings, fetchCategories, assignUserPackage, setUserFeaturedCategories, disableUserFeatured } from '@/services/users';
 import { CATEGORY_SLUGS, CategorySlug } from '@/models/makes';
+import { UsersMeta } from '@/models/users';
 
 interface User {
   id: string;
@@ -87,6 +88,7 @@ export default function UsersPage() {
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [activeTab, setActiveTab] = useState('data');
   const [currentPage, setCurrentPage] = useState(1);
+  const [usersMeta, setUsersMeta] = useState<UsersMeta | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const usersPerPage = 10;
@@ -103,12 +105,12 @@ export default function UsersPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const resp = await fetchUsersSummary();
+        const resp = await fetchUsersSummaryPage(currentPage);
         const mapped = resp.users.map(u => ({
           id: String(u.id),
           name: u.name ?? '',
           phone: u.phone,
-          userCode: u.user_code,
+          userCode: String(u.id),
           status: u.status === 'active' ? 'active' : 'banned',
           registrationDate: u.registered_at,
           adsCount: typeof u.listings_count === 'number' ? u.listings_count : 0,
@@ -117,12 +119,14 @@ export default function UsersPage() {
           phoneVerified: false,
         } as User));
         setUsers(mapped);
+        setUsersMeta(resp.meta);
+        if (resp.meta?.page && resp.meta.page !== currentPage) setCurrentPage(resp.meta.page);
       } catch (e) {
         showToast('تعذر تحميل المستخدمين', 'error');
       }
     };
     load();
-  }, []);
+  }, [currentPage]);
 
   useEffect(() => {
     if (!selectedUser) return;
@@ -407,7 +411,7 @@ export default function UsersPage() {
         id: String(u.id),
         name: u.name ?? '',
         phone: u.phone,
-        userCode: u.user_code,
+        userCode: String(u.id),
         status: u.status === 'active' ? 'active' : 'banned',
         registrationDate: u.registered_at,
         adsCount: typeof u.listings_count === 'number' ? u.listings_count : 0,
@@ -500,10 +504,15 @@ export default function UsersPage() {
     );
 
   // Pagination calculations
-  const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
+  const totalPages = usersMeta ? Math.max(1, usersMeta.last_page) : Math.ceil(filteredUsers.length / usersPerPage);
   const startIndex = (currentPage - 1) * usersPerPage;
   const endIndex = startIndex + usersPerPage;
-  const currentUsers = filteredUsers.slice(startIndex, endIndex);
+  const currentUsers = usersMeta ? filteredUsers : filteredUsers.slice(startIndex, endIndex);
+  const serverPage = usersMeta ? usersMeta.page : currentPage;
+  const serverPerPage = usersMeta ? usersMeta.per_page : usersPerPage;
+  const serverTotal = usersMeta ? usersMeta.total : filteredUsers.length;
+  const displayStart = serverTotal > 0 ? ((serverPage - 1) * serverPerPage + 1) : 0;
+  const displayEnd = serverTotal > 0 ? Math.min(serverPage * serverPerPage, serverTotal) : 0;
 
   // Toast functions
   const showToast = (
@@ -816,7 +825,7 @@ export default function UsersPage() {
         id: String(u.id),
         name: u.name ?? '',
         phone: u.phone,
-        userCode: u.user_code,
+        userCode: String(u.id),
         status: u.status === 'active' ? 'active' : 'banned',
         registrationDate: u.registered_at,
         adsCount: typeof u.listings_count === 'number' ? u.listings_count : 0,
@@ -1794,10 +1803,10 @@ export default function UsersPage() {
         {/* Results Info */}
         <div className="results-info">
           <div className="results-count">
-            عرض {startIndex + 1} - {Math.min(endIndex, filteredUsers.length)} من {filteredUsers.length} مستخدم
+            عرض {displayStart} - {displayEnd} من {serverTotal} مستخدم
           </div>
           <div className="page-info">
-            الصفحة {currentPage} من {totalPages}
+            الصفحة {serverPage} من {totalPages}
           </div>
         </div>
 
@@ -2117,7 +2126,7 @@ export default function UsersPage() {
         {totalPages > 1 && (
           <div className="pagination-container">
             <div className="pagination-info">
-              عرض {filteredUsers.length} مستخدم في {totalPages} صفحة
+              عرض {serverTotal} مستخدم في {totalPages} صفحة
             </div>
             
             <div className="pagination">

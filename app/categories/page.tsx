@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { fetchCarMakes, fetchCategoryFields, fetchCategoryFieldMaps, fetchCategoryMainSubsBatch, fetchGovernorates, postAdminGovernorates, createGovernorate, createCity, updateGovernorate, deleteGovernorate, updateCity, deleteCity, fetchGovernorateById, updateCategoryFieldOptions, fetchAdminMakesWithIds, postAdminMake, postAdminMakeModels } from '@/services/makes';
+import { fetchCarMakes, fetchCategoryFields, fetchCategoryFieldMaps, fetchCategoryMainSubsBatch, fetchGovernorates, postAdminGovernorates, createGovernorate, createCity, updateGovernorate, deleteGovernorate, updateCity, deleteCity, fetchGovernorateById, updateCategoryFieldOptions, fetchAdminMakesWithIds, postAdminMake, postAdminMakeModels, postAdminMainSection, postAdminSubSections, fetchAdminMainSectionsBatch, fetchAdminMainSections, deleteAdminMainSection, deleteAdminSubSection, fetchAdminSubSections, updateAdminMake, deleteAdminMake, updateAdminModel, deleteAdminModel, fetchMakeModels, updateAdminMainSection, updateAdminSubSection } from '@/services/makes';
+import type { AdminMainSectionRecord, AdminSubSectionRecord } from '@/models/makes';
 
 interface Category {
   id: number;
@@ -83,7 +84,7 @@ export default function CategoriesPage() {
     return updateCategoryFieldOptions(slug, name, options)
       .then(() => { if (success) showToast(success, 'success'); })
       .catch((err) => {
-        const msg = err && typeof err === 'object' && 'message' in err ? (err as any).message : 'حدث خطأ في تحديث البيانات';
+        const msg = getErrMsg(err, 'حدث خطأ في تحديث البيانات');
         showToast(msg, 'error');
       });
   };
@@ -91,6 +92,76 @@ export default function CategoriesPage() {
   const [selectedCity, setSelectedCity] = useState('');
   const [BRANDS_MODELS, setBRANDS_MODELS] = useState<Record<string, string[]>>({});
   const [MAKE_IDS, setMAKE_IDS] = useState<Record<string, number>>({});
+  const [MODEL_IDS_BY_BRAND, setMODEL_IDS_BY_BRAND] = useState<Record<string, Record<string, number>>>({});
+  const [RENTAL_BRANDS_MODELS, setRENTAL_BRANDS_MODELS] = useState<Record<string, string[]>>({});
+  const [PARTS_BRANDS_MODELS, setPARTS_BRANDS_MODELS] = useState<Record<string, string[]>>({});
+  const getErrMsg = (err: unknown, fallback: string): string => {
+    if (typeof err === 'string') return err;
+    if (err instanceof Error && typeof err.message === 'string') return err.message;
+    if (err && typeof err === 'object') {
+      const o = err as Record<string, unknown>;
+      const m = o['message'];
+      if (typeof m === 'string') return m;
+      const e = o['error'];
+      if (typeof e === 'string') return e;
+    }
+    return fallback;
+  };
+  const propagateBrandDelete = (name: string) => {
+    setBRANDS_MODELS(prev => { const n = { ...prev }; delete n[name]; return n; });
+    setRENTAL_BRANDS_MODELS(prev => { const n = { ...prev }; delete n[name]; return n; });
+    setPARTS_BRANDS_MODELS(prev => { const n = { ...prev }; delete n[name]; return n; });
+    setMAKE_IDS(prev => { const rec = { ...prev }; delete rec[name]; return rec; });
+    setMODEL_IDS_BY_BRAND(prev => { const rec = { ...prev }; delete rec[name]; return rec; });
+    if (selectedBrand === name) { setSelectedBrand(''); setSelectedModel(''); }
+    if (selectedRentalBrand === name) { setSelectedRentalBrand(''); setSelectedRentalModel(''); }
+    if (selectedPartsBrand === name) { setSelectedPartsBrand(''); setSelectedPartsModel(''); }
+  };
+  const propagateBrandRename = (prevName: string, next: string, id?: number) => {
+    setBRANDS_MODELS(prev => { if (prev[next]) return prev; const n = { ...prev }; const list = n[prevName] ?? []; delete n[prevName]; n[next] = list; return n; });
+    setRENTAL_BRANDS_MODELS(prev => { if (prev[next]) return prev; const n = { ...prev }; const list = n[prevName] ?? []; delete n[prevName]; n[next] = list; return n; });
+    setPARTS_BRANDS_MODELS(prev => { if (prev[next]) return prev; const n = { ...prev }; const list = n[prevName] ?? []; delete n[prevName]; n[next] = list; return n; });
+    setMAKE_IDS(prev => { const rec = { ...prev }; const currId = rec[prevName]; delete rec[prevName]; rec[next] = typeof currId === 'number' ? currId : (typeof id === 'number' ? id! : currId); return rec; });
+    setMODEL_IDS_BY_BRAND(prev => { const rec = { ...prev }; const mrec = rec[prevName]; delete rec[prevName]; if (mrec) rec[next] = mrec; return rec; });
+    if (selectedBrand === prevName) setSelectedBrand(next);
+    if (selectedRentalBrand === prevName) setSelectedRentalBrand(next);
+    if (selectedPartsBrand === prevName) setSelectedPartsBrand(next);
+  };
+  const propagateBrandAdd = (name: string, id?: number) => {
+    setBRANDS_MODELS(prev => { if (prev[name]) return prev; return { ...prev, [name]: [] }; });
+    setRENTAL_BRANDS_MODELS(prev => { if (prev[name]) return prev; return { ...prev, [name]: [] }; });
+    setPARTS_BRANDS_MODELS(prev => { if (prev[name]) return prev; return { ...prev, [name]: [] }; });
+    if (typeof id === 'number') setMAKE_IDS(prev => ({ ...prev, [name]: id! }));
+  };
+  const propagateModelsAdded = (brand: string, names: string[], idMap?: Record<string, number>) => {
+    const addTo = (prev: Record<string, string[]>) => { const existing = prev[brand] ?? []; const toAdd = names.filter(m => !existing.includes(m)); if (toAdd.length === 0) return prev; return { ...prev, [brand]: [...existing, ...toAdd] }; };
+    setBRANDS_MODELS(prev => addTo(prev));
+    setRENTAL_BRANDS_MODELS(prev => addTo(prev));
+    setPARTS_BRANDS_MODELS(prev => addTo(prev));
+    if (idMap && Object.keys(idMap).length) setMODEL_IDS_BY_BRAND(prev => ({ ...prev, [brand]: { ...(prev[brand] ?? {}), ...idMap } }));
+  };
+  const propagateModelDelete = (brand: string, m: string) => {
+    const removeFrom = (prev: Record<string, string[]>) => { const list = prev[brand] ?? []; return { ...prev, [brand]: list.filter(x => x !== m) }; };
+    setBRANDS_MODELS(prev => removeFrom(prev));
+    setRENTAL_BRANDS_MODELS(prev => removeFrom(prev));
+    setPARTS_BRANDS_MODELS(prev => removeFrom(prev));
+    setMODEL_IDS_BY_BRAND(prev => { const rec = { ...(prev[brand] ?? {}) }; delete rec[m]; return { ...prev, [brand]: rec }; });
+    if (selectedModel === m) setSelectedModel('');
+    if (selectedRentalModel === m) setSelectedRentalModel('');
+    if (selectedPartsModel === m) setSelectedPartsModel('');
+  };
+  const propagateModelRename = (brand: string, prevName: string, next: string) => {
+    const renameIn = (prev: Record<string, string[]>) => { const list = prev[brand] ?? []; if (list.includes(next)) return prev; const updated = list.map(x => (x === prevName ? next : x)); return { ...prev, [brand]: updated }; };
+    setBRANDS_MODELS(prev => renameIn(prev));
+    setRENTAL_BRANDS_MODELS(prev => renameIn(prev));
+    setPARTS_BRANDS_MODELS(prev => renameIn(prev));
+    setMODEL_IDS_BY_BRAND(prev => { const rec = { ...(prev[brand] ?? {}) }; const id = rec[prevName]; delete rec[prevName]; if (typeof id === 'number') rec[next] = id; return { ...prev, [brand]: rec }; });
+    if (selectedModel === prevName) setSelectedModel(next);
+    if (selectedRentalModel === prevName) setSelectedRentalModel(next);
+    if (selectedPartsModel === prevName) setSelectedPartsModel(next);
+  };
+  const [MAIN_IDS_BY_SLUG, setMAIN_IDS_BY_SLUG] = useState<Record<string, Record<string, number>>>({});
+  const [SUB_IDS_BY_SLUG, setSUB_IDS_BY_SLUG] = useState<Record<string, Record<string, Record<string, number>>>>({});
   const [selectedBrand, setSelectedBrand] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [newBrand, setNewBrand] = useState('');
@@ -139,9 +210,279 @@ export default function CategoriesPage() {
           return found.id;
         }
       } catch {}
-      const msg = err && typeof err === 'object' && 'message' in err ? (err as any).message : 'حدث خطأ في الحصول على الماركة';
+      const msg = getErrMsg(err, 'حدث خطأ في الحصول على الماركة');
       showToast(msg, 'error');
       return null;
+    }
+  };
+  const ensureMainSectionId = async (slug: string, name: string): Promise<number | null> => {
+    const n = String(name || '').trim();
+    if (!n) return null;
+    const existing = MAIN_IDS_BY_SLUG[slug]?.[n];
+    if (typeof existing === 'number') return existing;
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined;
+      const arr = await fetchAdminMainSections(slug, token);
+      const found = arr.find(it => String(it?.name || '').trim() === n);
+      if (found && typeof found.id === 'number') {
+        setMAIN_IDS_BY_SLUG(prev => ({ ...prev, [slug]: { ...(prev[slug] ?? {}), [found.name]: found.id } }));
+        return found.id;
+      }
+    } catch {}
+    showToast('تعذر الحصول على معرف الرئيسي', 'error');
+    return null;
+  };
+  const handleAddMain = async (
+    slug: string,
+    name: string,
+    setMap: (updater: (prev: Record<string, string[]>) => Record<string, string[]>) => void,
+    setSelected: (v: string) => void,
+    clearInput: () => void,
+  ) => {
+    const v = String(name || '').trim();
+    if (!v) return;
+    try {
+      const created = await postAdminMainSection(slug, v);
+      setMap(prev => {
+        if (prev[created.name]) return prev;
+        return { ...prev, [created.name]: [] };
+      });
+      setMAIN_IDS_BY_SLUG(prev => ({ ...prev, [slug]: { ...(prev[slug] ?? {}), [created.name]: created.id } }));
+      setSelected(created.name);
+      clearInput();
+      showToast('تم إضافة الرئيسي', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في إضافة الرئيسي');
+      showToast(msg, 'error');
+    }
+  };
+  const handleAddSubsBulk = async (
+    slug: string,
+    selectedMain: string,
+    tokens: string[],
+    setMap: (updater: (prev: Record<string, string[]>) => Record<string, string[]>) => void,
+    setSelectedSub: (v: string) => void,
+    clearBulkInput: () => void,
+  ) => {
+    const mainId = await ensureMainSectionId(slug, selectedMain);
+    if (!mainId) return;
+    const uniq = Array.from(new Set(tokens.map(x => String(x).trim()).filter(Boolean)));
+    if (uniq.length === 0) return;
+    try {
+      const resp = await postAdminSubSections(mainId, uniq);
+      const createdNames = Array.isArray(resp.sub_sections) ? resp.sub_sections.map(s => String(s.name).trim()).filter(Boolean) : uniq;
+      const idMap: Record<string, number> = {};
+      if (Array.isArray(resp.sub_sections)) {
+        for (const s of resp.sub_sections) {
+          const nm = String(s?.name || '').trim();
+          const sid = typeof s?.id === 'number' ? s.id : undefined;
+          if (nm && typeof sid === 'number') idMap[nm] = sid;
+        }
+      }
+      setMap(prev => {
+        const existing = prev[selectedMain] ?? [];
+        const toAdd = createdNames.filter(s => !existing.includes(s));
+        if (toAdd.length === 0) return prev;
+        return { ...prev, [selectedMain]: [...existing, ...toAdd] };
+      });
+      if (Object.keys(idMap).length) {
+        setSUB_IDS_BY_SLUG(prev => ({
+          ...prev,
+          [slug]: { ...(prev[slug] ?? {}), [selectedMain]: { ...((prev[slug] ?? {})[selectedMain] ?? {}), ...idMap } },
+        }));
+      }
+      setSelectedSub('');
+      clearBulkInput();
+      showToast('تم تسليم الفرعيات', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في إضافة الفرعيات');
+      showToast(msg, 'error');
+    }
+  };
+  const ensureSubSectionId = async (slug: string, mainName: string, subName: string): Promise<number | null> => {
+    const m = String(mainName || '').trim();
+    const s = String(subName || '').trim();
+    if (!m || !s) return null;
+    const existing = SUB_IDS_BY_SLUG[slug]?.[m]?.[s];
+    if (typeof existing === 'number') return existing;
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined;
+      const arr = await fetchAdminMainSections(slug, token);
+      const foundMain = arr.find(it => String(it?.name || '').trim() === m);
+      const foundSub = foundMain?.sub_sections?.find(ss => String(ss?.name || '').trim() === s);
+      if (foundSub && typeof foundSub.id === 'number') {
+        setSUB_IDS_BY_SLUG(prev => ({
+          ...prev,
+          [slug]: {
+            ...(prev[slug] ?? {}),
+            [m]: { ...((prev[slug] ?? {})[m] ?? {}), [s]: foundSub.id },
+          },
+        }));
+        return foundSub.id;
+      }
+      const mainId = typeof foundMain?.id === 'number' ? foundMain.id : await ensureMainSectionId(slug, m);
+      if (typeof mainId === 'number' && mainId) {
+        const list = await fetchAdminSubSections(mainId, token);
+        const sub = list.find(ss => String(ss?.name || '').trim() === s);
+        if (sub && typeof sub.id === 'number') {
+          setSUB_IDS_BY_SLUG(prev => ({
+            ...prev,
+            [slug]: {
+              ...(prev[slug] ?? {}),
+              [m]: { ...((prev[slug] ?? {})[m] ?? {}), [s]: sub.id },
+            },
+          }));
+          return sub.id;
+        }
+      }
+    } catch {}
+    showToast('تعذر الحصول على معرف الفرعي', 'error');
+    return null;
+  };
+  const handleDeleteMain = async (
+    slug: string,
+    name: string,
+    setMap: (updater: (prev: Record<string, string[]>) => Record<string, string[]>) => void,
+    selected: string,
+    setSelected: (v: string) => void,
+  ) => {
+    const id = await ensureMainSectionId(slug, name);
+    if (!id) return;
+    try {
+      await deleteAdminMainSection(id);
+      setMap(prev => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+      setMAIN_IDS_BY_SLUG(prev => {
+        const rec = { ...(prev[slug] ?? {}) };
+        delete rec[name];
+        return { ...prev, [slug]: rec };
+      });
+      setSUB_IDS_BY_SLUG(prev => {
+        const rec = { ...(prev[slug] ?? {}) };
+        delete rec[name];
+        return { ...prev, [slug]: rec };
+      });
+      if (selected === name) setSelected('');
+      showToast('تم حذف الرئيسي', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في حذف الرئيسي');
+      showToast(msg, 'error');
+    }
+  };
+  const handleDeleteSub = async (
+    slug: string,
+    selectedMain: string,
+    subName: string,
+    setMap: (updater: (prev: Record<string, string[]>) => Record<string, string[]>) => void,
+    selectedSub: string,
+    setSelectedSub: (v: string) => void,
+  ) => {
+    const id = await ensureSubSectionId(slug, selectedMain, subName);
+    if (!id) return;
+    try {
+      await deleteAdminSubSection(id);
+      setMap(prev => {
+        const list = prev[selectedMain] ?? [];
+        const nextList = list.filter(x => x !== subName);
+        return { ...prev, [selectedMain]: nextList };
+      });
+      setSUB_IDS_BY_SLUG(prev => {
+        const slugRec = { ...(prev[slug] ?? {}) };
+        const mainRec = { ...(slugRec[selectedMain] ?? {}) };
+        delete mainRec[subName];
+        slugRec[selectedMain] = mainRec;
+        return { ...prev, [slug]: slugRec };
+      });
+      if (selectedSub === subName) setSelectedSub('');
+      showToast('تم حذف الفرعي', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في حذف الفرعي');
+      showToast(msg, 'error');
+    }
+  };
+  const handleRenameMain = async (
+    slug: string,
+    prevName: string,
+    nextRaw: string,
+    setMap: (updater: (prev: Record<string, string[]>) => Record<string, string[]>) => void,
+    selected: string,
+    setSelected: (v: string) => void,
+  ) => {
+    const next = nextRaw.trim();
+    if (!next || prevName === next) return;
+    const id = await ensureMainSectionId(slug, prevName);
+    if (!id) return;
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined;
+      const rec = await updateAdminMainSection(id, next, token);
+      setMap(prev => {
+        if (prev[next]) return prev;
+        const n = { ...prev };
+        const list = n[prevName] ?? [];
+        delete n[prevName];
+        n[rec.name] = list;
+        return n;
+      });
+      setMAIN_IDS_BY_SLUG(prev => {
+        const slugRec = { ...(prev[slug] ?? {}) };
+        const currId = slugRec[prevName];
+        delete slugRec[prevName];
+        slugRec[rec.name] = typeof currId === 'number' ? currId : id;
+        return { ...prev, [slug]: slugRec };
+      });
+      setSUB_IDS_BY_SLUG(prev => {
+        const slugRec = { ...(prev[slug] ?? {}) };
+        const curr = slugRec[prevName];
+        delete slugRec[prevName];
+        if (curr) slugRec[rec.name] = curr;
+        return { ...prev, [slug]: slugRec };
+      });
+      if (selected === prevName) setSelected(rec.name);
+      showToast('تم تعديل الرئيسي', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في تعديل الرئيسي');
+      showToast(msg, 'error');
+    }
+  };
+  const handleRenameSub = async (
+    slug: string,
+    selectedMain: string,
+    prevName: string,
+    nextRaw: string,
+    setMap: (updater: (prev: Record<string, string[]>) => Record<string, string[]>) => void,
+    selectedSub: string,
+    setSelectedSub: (v: string) => void,
+  ) => {
+    const next = nextRaw.trim();
+    if (!next || prevName === next || !selectedMain) return;
+    const id = await ensureSubSectionId(slug, selectedMain, prevName);
+    if (!id) return;
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') ?? undefined : undefined;
+      const rec = await updateAdminSubSection(id, next, token);
+      setMap(prev => {
+        const list = prev[selectedMain] ?? [];
+        if (list.includes(rec.name)) return prev;
+        const updated = list.map(x => (x === prevName ? rec.name : x));
+        return { ...prev, [selectedMain]: updated };
+      });
+      setSUB_IDS_BY_SLUG(prev => {
+        const slugRec = { ...(prev[slug] ?? {}) };
+        const mainRec = { ...(slugRec[selectedMain] ?? {}) };
+        const currId = mainRec[prevName];
+        delete mainRec[prevName];
+        mainRec[rec.name] = typeof currId === 'number' ? currId : id;
+        slugRec[selectedMain] = mainRec;
+        return { ...prev, [slug]: slugRec };
+      });
+      if (selectedSub === prevName) setSelectedSub(rec.name);
+      showToast('تم تعديل الفرعي', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في تعديل الفرعي');
+      showToast(msg, 'error');
     }
   };
   useEffect(() => {
@@ -217,8 +558,11 @@ export default function CategoriesPage() {
         'wholesale',
         'heavy-transport',
       ], token),
+      fetchAdminMainSectionsBatch([
+        'spare-parts','animals','food-products','restaurants','stores','groceries','kids-toys','home-services','furniture','home-tools','home-appliances','electronics','health','education','shipping','mens-clothes','watches-jewelry','free-professions','car-services','maintenance','construction','gym','light-vehicles','production-lines','farm-products','lighting-decor','missing','tools','wholesale','heavy-transport'
+      ], token),
     ])
-      .then(([maps, mainSubs]) => {
+      .then(([maps, mainSubs, mainWithIds]) => {
         const pick = (obj: Record<string, string[]> | undefined, keys: string[]): string[] => {
           if (!obj) return [];
           for (const [k, v] of Object.entries(obj)) {
@@ -344,6 +688,93 @@ export default function CategoriesPage() {
         const brands = pick(parts, ['ماركة', 'brand', 'الشركة']);
         const models = pick(parts, ['موديل', 'model', 'طراز', 'type']);
         if (brands.length && models.length) setPARTS_BRANDS_MODELS(prev => (prev && Object.keys(prev).length ? prev : Object.fromEntries(brands.map(b => [b, models]))));
+        try {
+          const idMap: Record<string, Record<string, number>> = {};
+          for (const [slug, arr] of Object.entries(mainWithIds)) {
+            const rec: Record<string, number> = {};
+            const list = arr as AdminMainSectionRecord[] | undefined;
+            if (Array.isArray(list)) {
+              for (const it of list) {
+                const name = String(it?.name || '').trim();
+                const id = typeof it?.id === 'number' ? it.id : undefined;
+                if (name && typeof id === 'number') rec[name] = id;
+              }
+            }
+            idMap[slug] = rec;
+          }
+          setMAIN_IDS_BY_SLUG(idMap);
+          const adminMap = (slug: string): Record<string, string[]> => {
+            const list = mainWithIds[slug] as AdminMainSectionRecord[] | undefined;
+            const out: Record<string, string[]> = {};
+            if (Array.isArray(list)) {
+              for (const it of list) {
+                const name = String(it?.name || '').trim();
+                const subsRaw = it.sub_sections as AdminSubSectionRecord[] | undefined;
+                const subs = Array.isArray(subsRaw) ? subsRaw.map(s => String(s?.name || '').trim()).filter(Boolean) : [];
+                if (name) out[name] = subs;
+              }
+            }
+            return out;
+          };
+          const adminSubIds = (slug: string): Record<string, Record<string, number>> => {
+            const list = mainWithIds[slug] as AdminMainSectionRecord[] | undefined;
+            const out: Record<string, Record<string, number>> = {};
+            if (Array.isArray(list)) {
+              for (const it of list) {
+                const name = String(it?.name || '').trim();
+                const subsRaw = it.sub_sections as AdminSubSectionRecord[] | undefined;
+                const rec: Record<string, number> = {};
+                if (Array.isArray(subsRaw)) {
+                  for (const s of subsRaw) {
+                    const sn = String(s?.name || '').trim();
+                    const sid = typeof s?.id === 'number' ? s.id : undefined;
+                    if (sn && typeof sid === 'number') rec[sn] = sid;
+                  }
+                }
+                if (name) out[name] = rec;
+              }
+            }
+            return out;
+          };
+          const applyAdmin = <T extends Record<string, string[]>>(slug: string, setter: (v: T | ((prev: T) => T)) => void) => {
+            const map = adminMap(slug);
+            if (Object.keys(map).length) setter(map as T);
+          };
+          applyAdmin('animals', setANIMALS_MAIN_SUBS);
+          applyAdmin('food-products', setFOOD_MAIN_SUBS);
+          applyAdmin('restaurants', setRESTAURANTS_MAIN_SUBS);
+          applyAdmin('stores', setSTORES_MAIN_SUBS);
+          applyAdmin('groceries', setGROCERIES_MAIN_SUBS);
+          applyAdmin('kids-toys', setKIDS_SUPPLIES_TOYS_MAIN_SUBS);
+          applyAdmin('home-services', setHOME_SERVICES_MAIN_SUBS);
+          applyAdmin('furniture', setFURNITURE_MAIN_SUBS);
+          applyAdmin('home-tools', setHOUSEHOLD_TOOLS_MAIN_SUBS);
+          applyAdmin('home-appliances', setHOME_APPLIANCES_MAIN_SUBS);
+          applyAdmin('electronics', setELECTRONICS_MAIN_SUBS);
+          applyAdmin('health', setHEALTH_MAIN_SUBS);
+          applyAdmin('education', setEDUCATION_MAIN_SUBS);
+          applyAdmin('shipping', setSHIPPING_MAIN_SUBS);
+          applyAdmin('mens-clothes', setMENS_CLOTHING_SHOES_MAIN_SUBS);
+          applyAdmin('watches-jewelry', setWATCHES_JEWELRY_MAIN_SUBS);
+          applyAdmin('free-professions', setFREELANCE_SERVICES_MAIN_SUBS);
+          applyAdmin('car-services', setCAR_SERVICES_MAIN_SUBS);
+          applyAdmin('maintenance', setGENERAL_MAINTENANCE_MAIN_SUBS);
+          applyAdmin('construction', setCONSTRUCTION_TOOLS_MAIN_SUBS);
+          applyAdmin('gym', setGYMS_MAIN_SUBS);
+          applyAdmin('light-vehicles', setBIKES_LIGHT_VEHICLES_MAIN_SUBS);
+          applyAdmin('production-lines', setMATERIALS_PRODUCTION_LINES_MAIN_SUBS);
+          applyAdmin('farm-products', setFARMS_FACTORIES_PRODUCTS_MAIN_SUBS);
+          applyAdmin('lighting-decor', setLIGHTING_DECOR_MAIN_SUBS);
+          applyAdmin('missing', setMISSING_MAIN_SUBS);
+          applyAdmin('tools', setTOOLS_SUPPLIES_MAIN_SUBS);
+          applyAdmin('wholesale', setWHOLESALE_MAIN_SUBS);
+          applyAdmin('heavy-transport', setHEAVY_EQUIPMENT_MAIN_SUBS);
+          const subIdMap: Record<string, Record<string, Record<string, number>>> = {};
+          for (const slug of Object.keys(mainWithIds)) {
+            subIdMap[slug] = adminSubIds(slug);
+          }
+          setSUB_IDS_BY_SLUG(subIdMap);
+        } catch {}
       })
       .catch(() => {});
   }, []);
@@ -359,7 +790,6 @@ export default function CategoriesPage() {
   const [newExteriorColorVal, setNewExteriorColorVal] = useState('');
   const [newTransmissionVal, setNewTransmissionVal] = useState('');
   const [newFuelVal, setNewFuelVal] = useState('');
-  const [RENTAL_BRANDS_MODELS, setRENTAL_BRANDS_MODELS] = useState<Record<string, string[]>>({});
   const [selectedRentalBrand, setSelectedRentalBrand] = useState('');
   const [selectedRentalModel, setSelectedRentalModel] = useState('');
   const [newRentalBrand, setNewRentalBrand] = useState('');
@@ -377,7 +807,6 @@ export default function CategoriesPage() {
   const [contractTypeOptions, setContractTypeOptions] = useState<string[]>(CONTRACT_TYPES);
   const [newPropertyTypeVal, setNewPropertyTypeVal] = useState('');
   const [newContractTypeVal, setNewContractTypeVal] = useState('');
-  const [PARTS_BRANDS_MODELS, setPARTS_BRANDS_MODELS] = useState<Record<string, string[]>>({});
   const [selectedPartsBrand, setSelectedPartsBrand] = useState('');
   const [selectedPartsModel, setSelectedPartsModel] = useState('');
   const [newPartsBrand, setNewPartsBrand] = useState('');
@@ -1306,44 +1735,41 @@ export default function CategoriesPage() {
     if (!name) return;
     try {
       const created = await postAdminMake(name);
-      setBRANDS_MODELS(prev => {
-        if (prev[created.name]) return prev;
-        return { ...prev, [created.name]: [] };
-      });
-      setMAKE_IDS(prev => ({ ...prev, [created.name]: created.id }));
+      propagateBrandAdd(created.name, created.id);
       setSelectedBrand(created.name);
       setNewBrand('');
       showToast('تم إضافة الماركة', 'success');
     } catch (err) {
-      const msg = err && typeof err === 'object' && 'message' in err ? (err as any).message : 'حدث خطأ في إضافة الماركة';
+      const msg = getErrMsg(err, 'حدث خطأ في إضافة الماركة');
       showToast(msg, 'error');
     }
   };
 
-  const removeBrand = (name: string) => {
-    setBRANDS_MODELS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedBrand === name) {
-      setSelectedBrand('');
-      setSelectedModel('');
+  const removeBrand = async (name: string) => {
+    const id = await ensureMakeId(name);
+    if (!id) return;
+    try {
+      await deleteAdminMake(id);
+      propagateBrandDelete(name);
+      showToast('تم حذف الماركة', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في حذف الماركة');
+      showToast(msg, 'error');
     }
   };
-  const renameBrand = (prevName: string, nextRaw: string) => {
+  const renameBrand = async (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
     if (!next || prevName === next) return;
-    setBRANDS_MODELS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedBrand === prevName) setSelectedBrand(next);
-    showToast('تم تعديل الماركة', 'success');
+    const id = await ensureMakeId(prevName);
+    if (!id) return;
+    try {
+      await updateAdminMake(id, next);
+      propagateBrandRename(prevName, next, id);
+      showToast('تم تعديل الماركة', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في تعديل الماركة');
+      showToast(msg, 'error');
+    }
   };
 
   const addModelsBulk = async () => {
@@ -1359,68 +1785,97 @@ export default function CategoriesPage() {
     try {
       const resp = await postAdminMakeModels(makeId, tokens);
       const createdNames = Array.isArray(resp.models) ? resp.models.map(m => String(m.name).trim()).filter(Boolean) : tokens;
-      setBRANDS_MODELS(prev => {
-        const existing = prev[selectedBrand] ?? [];
-        const toAdd = createdNames.filter(m => !existing.includes(m));
-        if (toAdd.length === 0) return prev;
-        return { ...prev, [selectedBrand]: [...existing, ...toAdd] };
-      });
+      const idMap: Record<string, number> = {};
+      const arr = Array.isArray(resp.models) ? resp.models : [];
+      for (const it of arr) {
+        const nm = String(it?.name || '').trim();
+        const mid = typeof it?.id === 'number' ? it.id : undefined;
+        if (nm && typeof mid === 'number') idMap[nm] = mid;
+      }
+      propagateModelsAdded(selectedBrand, createdNames, idMap);
       setSelectedModel('');
       setNewModelsBulk('');
       showToast('تم تسليم الموديلات', 'success');
     } catch (err) {
-      const msg = err && typeof err === 'object' && 'message' in err ? (err as any).message : 'حدث خطأ في إضافة الموديلات';
+      const msg = getErrMsg(err, 'حدث خطأ في إضافة الموديلات');
       showToast(msg, 'error');
     }
   };
 
-  const removeModel = (m: string) => {
+  const removeModel = async (m: string) => {
     if (!selectedBrand) return;
-    setBRANDS_MODELS(prev => {
-      const list = prev[selectedBrand] ?? [];
-      return { ...prev, [selectedBrand]: list.filter(x => x !== m) };
-    });
-    if (selectedModel === m) setSelectedModel('');
+    const makeId = await ensureMakeId(selectedBrand);
+    if (!makeId) return;
+    let modelId = MODEL_IDS_BY_BRAND[selectedBrand]?.[m];
+    if (typeof modelId !== 'number') {
+      try {
+        const list = await fetchMakeModels(makeId);
+        const found = list.find(it => String(it?.name || '').trim() === m);
+        if (found && typeof found.id === 'number') {
+          modelId = found.id;
+          setMODEL_IDS_BY_BRAND(prev => ({ ...prev, [selectedBrand]: { ...(prev[selectedBrand] ?? {}), [m]: modelId as number } }));
+        }
+      } catch {}
+    }
+    if (typeof modelId !== 'number') { showToast('تعذر الحصول على معرف الموديل', 'error'); return; }
+    try {
+      await deleteAdminModel(modelId);
+      propagateModelDelete(selectedBrand, m);
+      showToast('تم حذف الموديل', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في حذف الموديل');
+      showToast(msg, 'error');
+    }
   };
-  const renameModel = (prevName: string, nextRaw: string) => {
+  const renameModel = async (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
     if (!next || prevName === next || !selectedBrand) return;
-    setBRANDS_MODELS(prev => {
-      const list = prev[selectedBrand] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedBrand]: updated };
-    });
-    if (selectedModel === prevName) setSelectedModel(next);
-    showToast('تم تعديل الموديل', 'success');
+    const makeId = await ensureMakeId(selectedBrand);
+    if (!makeId) return;
+    let modelId = MODEL_IDS_BY_BRAND[selectedBrand]?.[prevName];
+    if (typeof modelId !== 'number') {
+      try {
+        const list = await fetchMakeModels(makeId);
+        const found = list.find(it => String(it?.name || '').trim() === prevName);
+        if (found && typeof found.id === 'number') {
+          modelId = found.id;
+        }
+      } catch {}
+    }
+    if (typeof modelId !== 'number') { showToast('تعذر الحصول على معرف الموديل', 'error'); return; }
+    try {
+      await updateAdminModel(modelId, next, makeId);
+      propagateModelRename(selectedBrand, prevName, next);
+      showToast('تم تعديل الموديل', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في تعديل الموديل');
+      showToast(msg, 'error');
+    }
   };
   const addPartsBrand = async () => {
     const name = newPartsBrand.trim();
     if (!name) return;
     try {
       const created = await postAdminMake(name);
-      setPARTS_BRANDS_MODELS(prev => {
-        if (prev[created.name]) return prev;
-        return { ...prev, [created.name]: [] };
-      });
-      setMAKE_IDS(prev => ({ ...prev, [created.name]: created.id }));
+      propagateBrandAdd(created.name, created.id);
       setSelectedPartsBrand(created.name);
       setNewPartsBrand('');
       showToast('تم إضافة الماركة', 'success');
     } catch (err) {
-      const msg = err && typeof err === 'object' && 'message' in err ? (err as any).message : 'حدث خطأ في إضافة الماركة';
+      const msg = getErrMsg(err, 'حدث خطأ في إضافة الماركة');
       showToast(msg, 'error');
     }
   };
-  const removePartsBrand = (name: string) => {
-    setPARTS_BRANDS_MODELS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedPartsBrand === name) {
-      setSelectedPartsBrand('');
-      setSelectedPartsModel('');
+  const removePartsBrand = async (name: string) => {
+    const id = await ensureMakeId(name);
+    if (!id) return;
+    try {
+      await deleteAdminMake(id);
+      propagateBrandDelete(name);
+      showToast('تم حذف الماركة', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في حذف الماركة');
+      showToast(msg, 'error');
     }
   };
   const addPartsModelsBulk = async () => {
@@ -1433,203 +1888,137 @@ export default function CategoriesPage() {
     try {
       const resp = await postAdminMakeModels(makeId, tokens);
       const createdNames = Array.isArray(resp.models) ? resp.models.map(m => String(m.name).trim()).filter(Boolean) : tokens;
-      setPARTS_BRANDS_MODELS(prev => {
-        const existing = prev[selectedPartsBrand] ?? [];
-        const toAdd = createdNames.filter(m => !existing.includes(m));
-        if (toAdd.length === 0) return prev;
-        return { ...prev, [selectedPartsBrand]: [...existing, ...toAdd] };
-      });
+      const idMap: Record<string, number> = {};
+      const arr = Array.isArray(resp.models) ? resp.models : [];
+      for (const it of arr) {
+        const nm = String(it?.name || '').trim();
+        const mid = typeof it?.id === 'number' ? it.id : undefined;
+        if (nm && typeof mid === 'number') idMap[nm] = mid;
+      }
+      propagateModelsAdded(selectedPartsBrand, createdNames, idMap);
       setSelectedPartsModel('');
       setNewPartsModelsBulk('');
       showToast('تم تسليم الموديلات', 'success');
     } catch (err) {
-      const msg = err && typeof err === 'object' && 'message' in err ? (err as any).message : 'حدث خطأ في إضافة الموديلات';
+      const msg = getErrMsg(err, 'حدث خطأ في إضافة الموديلات');
       showToast(msg, 'error');
     }
   };
-  const removePartsModel = (m: string) => {
+  const removePartsModel = async (m: string) => {
     if (!selectedPartsBrand) return;
-    setPARTS_BRANDS_MODELS(prev => {
-      const list = prev[selectedPartsBrand] ?? [];
-      return { ...prev, [selectedPartsBrand]: list.filter(x => x !== m) };
-    });
-    if (selectedPartsModel === m) setSelectedPartsModel('');
+    const makeId = await ensureMakeId(selectedPartsBrand);
+    if (!makeId) return;
+    let modelId = MODEL_IDS_BY_BRAND[selectedPartsBrand]?.[m];
+    if (typeof modelId !== 'number') {
+      try {
+        const list = await fetchMakeModels(makeId);
+        const found = list.find(it => String(it?.name || '').trim() === m);
+        if (found && typeof found.id === 'number') {
+          modelId = found.id;
+          setMODEL_IDS_BY_BRAND(prev => ({ ...prev, [selectedPartsBrand]: { ...(prev[selectedPartsBrand] ?? {}), [m]: modelId as number } }));
+        }
+      } catch {}
+    }
+    if (typeof modelId !== 'number') { showToast('تعذر الحصول على معرف الموديل', 'error'); return; }
+    try {
+      await deleteAdminModel(modelId);
+      propagateModelDelete(selectedPartsBrand, m);
+      showToast('تم حذف الموديل', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في حذف الموديل');
+      showToast(msg, 'error');
+    }
   };
 
-  const renamePartsBrand = (prevName: string, nextRaw: string) => {
+  const renamePartsBrand = async (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
     if (!next || prevName === next) return;
-    setPARTS_BRANDS_MODELS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedPartsBrand === prevName) setSelectedPartsBrand(next);
-    showToast('تم تعديل الماركة', 'success');
+    const id = await ensureMakeId(prevName);
+    if (!id) return;
+    try {
+      await updateAdminMake(id, next);
+      propagateBrandRename(prevName, next, id);
+      showToast('تم تعديل الماركة', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في تعديل الماركة');
+      showToast(msg, 'error');
+    }
   };
 
-  const renamePartsModel = (prevName: string, nextRaw: string) => {
+  const renamePartsModel = async (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
     if (!next || prevName === next || !selectedPartsBrand) return;
-    setPARTS_BRANDS_MODELS(prev => {
-      const list = prev[selectedPartsBrand] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedPartsBrand]: updated };
-    });
-    if (selectedPartsModel === prevName) setSelectedPartsModel(next);
-    showToast('تم تعديل الموديل', 'success');
+    const makeId = await ensureMakeId(selectedPartsBrand);
+    if (!makeId) return;
+    let modelId = MODEL_IDS_BY_BRAND[selectedPartsBrand]?.[prevName];
+    if (typeof modelId !== 'number') {
+      try {
+        const list = await fetchMakeModels(makeId);
+        const found = list.find(it => String(it?.name || '').trim() === prevName);
+        if (found && typeof found.id === 'number') {
+          modelId = found.id;
+        }
+      } catch {}
+    }
+    if (typeof modelId !== 'number') { showToast('تعذر الحصول على معرف الموديل', 'error'); return; }
+    try {
+      await updateAdminModel(modelId, next, makeId);
+      propagateModelRename(selectedPartsBrand, prevName, next);
+      showToast('تم تعديل الموديل', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في تعديل الموديل');
+      showToast(msg, 'error');
+    }
   };
   const addPartsMain = () => {
     const name = newPartsMain.trim();
     if (!name) return;
-    setPARTS_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedPartsMain(name);
-    setNewPartsMain('');
+    handleAddMain('spare-parts', name, setPARTS_MAIN_SUBS, setSelectedPartsMain, () => setNewPartsMain(''));
   };
   const removePartsMain = (name: string) => {
-    setPARTS_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedPartsMain === name) {
-      setSelectedPartsMain('');
-      setSelectedPartsSub('');
-    }
+    handleDeleteMain('spare-parts', name, setPARTS_MAIN_SUBS, selectedPartsMain, setSelectedPartsMain);
   };
   const addPartsSubsBulk = () => {
     if (!selectedPartsMain) return;
     const raw = newPartsSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setPARTS_MAIN_SUBS(prev => {
-      const existing = prev[selectedPartsMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedPartsMain]: [...existing, ...toAdd] };
-    });
-    setSelectedPartsSub('');
-    setNewPartsSubsBulk('');
+    handleAddSubsBulk('spare-parts', selectedPartsMain, tokens, setPARTS_MAIN_SUBS, setSelectedPartsSub, () => setNewPartsSubsBulk(''));
   };
   const removePartsSub = (s: string) => {
     if (!selectedPartsMain) return;
-    setPARTS_MAIN_SUBS(prev => {
-      const list = prev[selectedPartsMain] ?? [];
-      return { ...prev, [selectedPartsMain]: list.filter(x => x !== s) };
-    });
-    if (selectedPartsSub === s) setSelectedPartsSub('');
+    handleDeleteSub('spare-parts', selectedPartsMain, s, setPARTS_MAIN_SUBS, selectedPartsSub, setSelectedPartsSub);
   };
   const renamePartsMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setPARTS_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedPartsMain === prevName) setSelectedPartsMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('spare-parts', prevName, nextRaw, setPARTS_MAIN_SUBS, selectedPartsMain, setSelectedPartsMain);
   };
   const renamePartsSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedPartsMain) return;
-    setPARTS_MAIN_SUBS(prev => {
-      const list = prev[selectedPartsMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedPartsMain]: updated };
-    });
-    if (selectedPartsSub === prevName) setSelectedPartsSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('spare-parts', selectedPartsMain, prevName, nextRaw, setPARTS_MAIN_SUBS, selectedPartsSub, setSelectedPartsSub);
   };
   const addAnimalMain = () => {
     const name = newAnimalMain.trim();
     if (!name) return;
-    setANIMALS_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    const nextMains = Object.keys(ANIMALS_MAIN_SUBS).includes(name) ? Object.keys(ANIMALS_MAIN_SUBS) : [...Object.keys(ANIMALS_MAIN_SUBS), name];
-    updateOptionsWithToast('animals', animalsMainKey, nextMains, 'تم إضافة الرئيسي');
-    setSelectedAnimalMain(name);
-    setNewAnimalMain('');
+    handleAddMain('animals', name, setANIMALS_MAIN_SUBS, setSelectedAnimalMain, () => setNewAnimalMain(''));
   };
   const renameAnimalMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setANIMALS_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedAnimalMain === prevName) setSelectedAnimalMain(next);
-    const mains = Object.keys(ANIMALS_MAIN_SUBS).map(x => (x === prevName ? next : x));
-    updateOptionsWithToast('animals', animalsMainKey, mains, 'تم تعديل الرئيسي');
+    handleRenameMain('animals', prevName, nextRaw, setANIMALS_MAIN_SUBS, selectedAnimalMain, setSelectedAnimalMain);
   };
   const removeAnimalMain = (name: string) => {
-    setANIMALS_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedAnimalMain === name) {
-      setSelectedAnimalMain('');
-      setSelectedAnimalSub('');
-    }
-    const mains = Object.keys(ANIMALS_MAIN_SUBS).filter(x => x !== name);
-    updateOptionsWithToast('animals', animalsMainKey, mains, 'تم حذف الرئيسي');
+    handleDeleteMain('animals', name, setANIMALS_MAIN_SUBS, selectedAnimalMain, setSelectedAnimalMain);
   };
   const addAnimalSubsBulk = () => {
     if (!selectedAnimalMain) return;
     const raw = newAnimalSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setANIMALS_MAIN_SUBS(prev => {
-      const existing = prev[selectedAnimalMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedAnimalMain]: [...existing, ...toAdd] };
-    });
-    const list = (ANIMALS_MAIN_SUBS[selectedAnimalMain] ?? []).concat(tokens.filter(s => !((ANIMALS_MAIN_SUBS[selectedAnimalMain] ?? []).includes(s))));
-    updateOptionsWithToast('animals', animalsSubKey, list, 'تم تحديث الفرعي');
-    setSelectedAnimalSub('');
-    setNewAnimalSubsBulk('');
+    handleAddSubsBulk('animals', selectedAnimalMain, tokens, setANIMALS_MAIN_SUBS, setSelectedAnimalSub, () => setNewAnimalSubsBulk(''));
   };
   const removeAnimalSub = (s: string) => {
     if (!selectedAnimalMain) return;
-    setANIMALS_MAIN_SUBS(prev => {
-      const list = prev[selectedAnimalMain] ?? [];
-      return { ...prev, [selectedAnimalMain]: list.filter(x => x !== s) };
-    });
-    if (selectedAnimalSub === s) setSelectedAnimalSub('');
-    const list = (ANIMALS_MAIN_SUBS[selectedAnimalMain] ?? []).filter(x => x !== s);
-    updateOptionsWithToast('animals', animalsSubKey, list, 'تم حذف الفرعي');
+    handleDeleteSub('animals', selectedAnimalMain, s, setANIMALS_MAIN_SUBS, selectedAnimalSub, setSelectedAnimalSub);
   };
   const renameAnimalSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedAnimalMain) return;
-    setANIMALS_MAIN_SUBS(prev => {
-      const list = prev[selectedAnimalMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedAnimalMain]: updated };
-    });
-    if (selectedAnimalSub === prevName) setSelectedAnimalSub(next);
-    const updated = (ANIMALS_MAIN_SUBS[selectedAnimalMain] ?? []).map(x => (x === prevName ? next : x));
-    updateOptionsWithToast('animals', animalsSubKey, updated, 'تم تعديل الفرعي');
+    handleRenameSub('animals', selectedAnimalMain, prevName, nextRaw, setANIMALS_MAIN_SUBS, selectedAnimalSub, setSelectedAnimalSub);
   };
 
   const addRentalBrand = async () => {
@@ -1637,45 +2026,42 @@ export default function CategoriesPage() {
     if (!name) return;
     try {
       const created = await postAdminMake(name);
-      setRENTAL_BRANDS_MODELS(prev => {
-        if (prev[created.name]) return prev;
-        return { ...prev, [created.name]: [] };
-      });
-      setMAKE_IDS(prev => ({ ...prev, [created.name]: created.id }));
+      propagateBrandAdd(created.name, created.id);
       setSelectedRentalBrand(created.name);
       setNewRentalBrand('');
       showToast('تم إضافة الماركة', 'success');
     } catch (err) {
-      const msg = err && typeof err === 'object' && 'message' in err ? (err as any).message : 'حدث خطأ في إضافة الماركة';
+      const msg = getErrMsg(err, 'حدث خطأ في إضافة الماركة');
       showToast(msg, 'error');
     }
   };
 
-  const removeRentalBrand = (name: string) => {
-    setRENTAL_BRANDS_MODELS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedRentalBrand === name) {
-      setSelectedRentalBrand('');
-      setSelectedRentalModel('');
+  const removeRentalBrand = async (name: string) => {
+    const id = await ensureMakeId(name);
+    if (!id) return;
+    try {
+      await deleteAdminMake(id);
+      propagateBrandDelete(name);
+      showToast('تم حذف الماركة', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في حذف الماركة');
+      showToast(msg, 'error');
     }
   };
 
-  const renameRentalBrand = (prevName: string, nextRaw: string) => {
+  const renameRentalBrand = async (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
     if (!next || prevName === next) return;
-    setRENTAL_BRANDS_MODELS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedRentalBrand === prevName) setSelectedRentalBrand(next);
-    showToast('تم تعديل الماركة', 'success');
+    const id = await ensureMakeId(prevName);
+    if (!id) return;
+    try {
+      await updateAdminMake(id, next);
+      propagateBrandRename(prevName, next, id);
+      showToast('تم تعديل الماركة', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في تعديل الماركة');
+      showToast(msg, 'error');
+    }
   };
 
   const addRentalModelsBulk = async () => {
@@ -1688,41 +2074,73 @@ export default function CategoriesPage() {
     try {
       const resp = await postAdminMakeModels(makeId, tokens);
       const createdNames = Array.isArray(resp.models) ? resp.models.map(m => String(m.name).trim()).filter(Boolean) : tokens;
-      setRENTAL_BRANDS_MODELS(prev => {
-        const existing = prev[selectedRentalBrand] ?? [];
-        const toAdd = createdNames.filter(m => !existing.includes(m));
-        if (toAdd.length === 0) return prev;
-        return { ...prev, [selectedRentalBrand]: [...existing, ...toAdd] };
-      });
+      const idMap: Record<string, number> = {};
+      const arr = Array.isArray(resp.models) ? resp.models : [];
+      for (const it of arr) {
+        const nm = String(it?.name || '').trim();
+        const mid = typeof it?.id === 'number' ? it.id : undefined;
+        if (nm && typeof mid === 'number') idMap[nm] = mid;
+      }
+      propagateModelsAdded(selectedRentalBrand, createdNames, idMap);
       setSelectedRentalModel('');
       setNewRentalModelsBulk('');
       showToast('تم تسليم الموديلات', 'success');
     } catch (err) {
-      const msg = err && typeof err === 'object' && 'message' in err ? (err as any).message : 'حدث خطأ في إضافة الموديلات';
+      const msg = getErrMsg(err, 'حدث خطأ في إضافة الموديلات');
       showToast(msg, 'error');
     }
   };
 
-  const removeRentalModel = (m: string) => {
+  const removeRentalModel = async (m: string) => {
     if (!selectedRentalBrand) return;
-    setRENTAL_BRANDS_MODELS(prev => {
-      const list = prev[selectedRentalBrand] ?? [];
-      return { ...prev, [selectedRentalBrand]: list.filter(x => x !== m) };
-    });
-    if (selectedRentalModel === m) setSelectedRentalModel('');
+    const makeId = await ensureMakeId(selectedRentalBrand);
+    if (!makeId) return;
+    let modelId = MODEL_IDS_BY_BRAND[selectedRentalBrand]?.[m];
+    if (typeof modelId !== 'number') {
+      try {
+        const list = await fetchMakeModels(makeId);
+        const found = list.find(it => String(it?.name || '').trim() === m);
+        if (found && typeof found.id === 'number') {
+          modelId = found.id;
+          setMODEL_IDS_BY_BRAND(prev => ({ ...prev, [selectedRentalBrand]: { ...(prev[selectedRentalBrand] ?? {}), [m]: modelId as number } }));
+        }
+      } catch {}
+    }
+    if (typeof modelId !== 'number') { showToast('تعذر الحصول على معرف الموديل', 'error'); return; }
+    try {
+      await deleteAdminModel(modelId);
+      propagateModelDelete(selectedRentalBrand, m);
+      showToast('تم حذف الموديل', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في حذف الموديل');
+      showToast(msg, 'error');
+    }
   };
 
-  const renameRentalModel = (prevName: string, nextRaw: string) => {
+  const renameRentalModel = async (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
     if (!next || prevName === next || !selectedRentalBrand) return;
-    setRENTAL_BRANDS_MODELS(prev => {
-      const list = prev[selectedRentalBrand] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedRentalBrand]: updated };
-    });
-    if (selectedRentalModel === prevName) setSelectedRentalModel(next);
-    showToast('تم تعديل الموديل', 'success');
+    const makeId = await ensureMakeId(selectedRentalBrand);
+    if (!makeId) return;
+    let modelId = MODEL_IDS_BY_BRAND[selectedRentalBrand]?.[prevName];
+    if (typeof modelId !== 'number') {
+      try {
+        const list = await fetchMakeModels(makeId);
+        const found = list.find(it => String(it?.name || '').trim() === prevName);
+        if (found && typeof found.id === 'number') {
+          modelId = found.id;
+        }
+      } catch {}
+    }
+    if (typeof modelId !== 'number') { showToast('تعذر الحصول على معرف الموديل', 'error'); return; }
+    try {
+      await updateAdminModel(modelId, next, makeId);
+      propagateModelRename(selectedRentalBrand, prevName, next);
+      showToast('تم تعديل الموديل', 'success');
+    } catch (err) {
+      const msg = getErrMsg(err, 'حدث خطأ في تعديل الموديل');
+      showToast(msg, 'error');
+    }
   };
 
   const addRentalYearOption = () => {
@@ -2168,228 +2586,76 @@ export default function CategoriesPage() {
   const addFoodMain = () => {
     const name = newFoodMain.trim();
     if (!name) return;
-    setFOOD_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    const nextMains = Object.keys(FOOD_MAIN_SUBS).includes(name) ? Object.keys(FOOD_MAIN_SUBS) : [...Object.keys(FOOD_MAIN_SUBS), name];
-    updateOptionsWithToast('food-products', foodMainKey, nextMains, 'تم إضافة الرئيسي');
-    setSelectedFoodMain(name);
-    setNewFoodMain('');
+    handleAddMain('food-products', name, setFOOD_MAIN_SUBS, setSelectedFoodMain, () => setNewFoodMain(''));
   };
   const removeFoodMain = (name: string) => {
-    setFOOD_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedFoodMain === name) {
-      setSelectedFoodMain('');
-      setSelectedFoodSub('');
-    }
-    const mains = Object.keys(FOOD_MAIN_SUBS).filter(x => x !== name);
-    updateOptionsWithToast('food-products', foodMainKey, mains, 'تم حذف الرئيسي');
+    handleDeleteMain('food-products', name, setFOOD_MAIN_SUBS, selectedFoodMain, setSelectedFoodMain);
   };
   const addFoodSubsBulk = () => {
     if (!selectedFoodMain) return;
     const raw = newFoodSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setFOOD_MAIN_SUBS(prev => {
-      const existing = prev[selectedFoodMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedFoodMain]: [...existing, ...toAdd] };
-    });
-    const list = (FOOD_MAIN_SUBS[selectedFoodMain] ?? []).concat(tokens.filter(s => !((FOOD_MAIN_SUBS[selectedFoodMain] ?? []).includes(s))));
-    updateOptionsWithToast('food-products', foodSubKey, list, 'تم تحديث الفرعي');
-    setSelectedFoodSub('');
-    setNewFoodSubsBulk('');
+    handleAddSubsBulk('food-products', selectedFoodMain, tokens, setFOOD_MAIN_SUBS, setSelectedFoodSub, () => setNewFoodSubsBulk(''));
   };
   const removeFoodSub = (s: string) => {
     if (!selectedFoodMain) return;
-    setFOOD_MAIN_SUBS(prev => {
-      const list = prev[selectedFoodMain] ?? [];
-      return { ...prev, [selectedFoodMain]: list.filter(x => x !== s) };
-    });
-    if (selectedFoodSub === s) setSelectedFoodSub('');
-    const list = (FOOD_MAIN_SUBS[selectedFoodMain] ?? []).filter(x => x !== s);
-    updateOptionsWithToast('food-products', foodSubKey, list, 'تم حذف الفرعي');
+    handleDeleteSub('food-products', selectedFoodMain, s, setFOOD_MAIN_SUBS, selectedFoodSub, setSelectedFoodSub);
   };
   const renameFoodMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setFOOD_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedFoodMain === prevName) setSelectedFoodMain(next);
-    const mains = Object.keys(FOOD_MAIN_SUBS).map(x => (x === prevName ? next : x));
-    updateOptionsWithToast('food-products', foodMainKey, mains, 'تم تعديل الرئيسي');
+    handleRenameMain('food-products', prevName, nextRaw, setFOOD_MAIN_SUBS, selectedFoodMain, setSelectedFoodMain);
   };
   const renameFoodSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedFoodMain) return;
-    setFOOD_MAIN_SUBS(prev => {
-      const list = prev[selectedFoodMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedFoodMain]: updated };
-    });
-    if (selectedFoodSub === prevName) setSelectedFoodSub(next);
-    const updated = (FOOD_MAIN_SUBS[selectedFoodMain] ?? []).map(x => (x === prevName ? next : x));
-    updateOptionsWithToast('food-products', foodSubKey, updated, 'تم تعديل الفرعي');
+    handleRenameSub('food-products', selectedFoodMain, prevName, nextRaw, setFOOD_MAIN_SUBS, selectedFoodSub, setSelectedFoodSub);
   };
 
   const addRestaurantMain = () => {
     const name = newRestaurantMain.trim();
     if (!name) return;
-    setRESTAURANTS_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    const nextMains = Object.keys(RESTAURANTS_MAIN_SUBS).includes(name) ? Object.keys(RESTAURANTS_MAIN_SUBS) : [...Object.keys(RESTAURANTS_MAIN_SUBS), name];
-    updateOptionsWithToast('restaurants', restaurantsMainKey, nextMains, 'تم إضافة الرئيسي');
-    setSelectedRestaurantMain(name);
-    setNewRestaurantMain('');
+    handleAddMain('restaurants', name, setRESTAURANTS_MAIN_SUBS, setSelectedRestaurantMain, () => setNewRestaurantMain(''));
   };
   const removeRestaurantMain = (name: string) => {
-    setRESTAURANTS_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedRestaurantMain === name) {
-      setSelectedRestaurantMain('');
-      setSelectedRestaurantSub('');
-    }
-    const mains = Object.keys(RESTAURANTS_MAIN_SUBS).filter(x => x !== name);
-    updateOptionsWithToast('restaurants', restaurantsMainKey, mains, 'تم حذف الرئيسي');
+    handleDeleteMain('restaurants', name, setRESTAURANTS_MAIN_SUBS, selectedRestaurantMain, setSelectedRestaurantMain);
   };
   const addRestaurantSubsBulk = () => {
     if (!selectedRestaurantMain) return;
     const raw = newRestaurantSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setRESTAURANTS_MAIN_SUBS(prev => {
-      const existing = prev[selectedRestaurantMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedRestaurantMain]: [...existing, ...toAdd] };
-    });
-    const list = (RESTAURANTS_MAIN_SUBS[selectedRestaurantMain] ?? []).concat(tokens.filter(s => !((RESTAURANTS_MAIN_SUBS[selectedRestaurantMain] ?? []).includes(s))));
-    updateOptionsWithToast('restaurants', restaurantsSubKey, list, 'تم تحديث الفرعي');
-    setSelectedRestaurantSub('');
-    setNewRestaurantSubsBulk('');
+    handleAddSubsBulk('restaurants', selectedRestaurantMain, tokens, setRESTAURANTS_MAIN_SUBS, setSelectedRestaurantSub, () => setNewRestaurantSubsBulk(''));
   };
   const removeRestaurantSub = (s: string) => {
     if (!selectedRestaurantMain) return;
-    setRESTAURANTS_MAIN_SUBS(prev => {
-      const list = prev[selectedRestaurantMain] ?? [];
-      return { ...prev, [selectedRestaurantMain]: list.filter(x => x !== s) };
-    });
-    if (selectedRestaurantSub === s) setSelectedRestaurantSub('');
-    const list = (RESTAURANTS_MAIN_SUBS[selectedRestaurantMain] ?? []).filter(x => x !== s);
-    updateOptionsWithToast('restaurants', restaurantsSubKey, list, 'تم حذف الفرعي');
+    handleDeleteSub('restaurants', selectedRestaurantMain, s, setRESTAURANTS_MAIN_SUBS, selectedRestaurantSub, setSelectedRestaurantSub);
   };
   const renameRestaurantMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setRESTAURANTS_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedRestaurantMain === prevName) setSelectedRestaurantMain(next);
-    const mains = Object.keys(RESTAURANTS_MAIN_SUBS).map(x => (x === prevName ? next : x));
-    updateOptionsWithToast('restaurants', restaurantsMainKey, mains, 'تم تعديل الرئيسي');
+    handleRenameMain('restaurants', prevName, nextRaw, setRESTAURANTS_MAIN_SUBS, selectedRestaurantMain, setSelectedRestaurantMain);
   };
   const renameRestaurantSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedRestaurantMain) return;
-    setRESTAURANTS_MAIN_SUBS(prev => {
-      const list = prev[selectedRestaurantMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedRestaurantMain]: updated };
-    });
-    if (selectedRestaurantSub === prevName) setSelectedRestaurantSub(next);
-    const updated = (RESTAURANTS_MAIN_SUBS[selectedRestaurantMain] ?? []).map(x => (x === prevName ? next : x));
-    updateOptionsWithToast('restaurants', restaurantsSubKey, updated, 'تم تعديل الفرعي');
+    handleRenameSub('restaurants', selectedRestaurantMain, prevName, nextRaw, setRESTAURANTS_MAIN_SUBS, selectedRestaurantSub, setSelectedRestaurantSub);
   };
 
   const addStoreMain = () => {
     const name = newStoreMain.trim();
     if (!name) return;
-    setSTORES_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    const nextMains = Object.keys(STORES_MAIN_SUBS).includes(name) ? Object.keys(STORES_MAIN_SUBS) : [...Object.keys(STORES_MAIN_SUBS), name];
-    updateOptionsWithToast('stores', storesMainKey, nextMains, 'تم إضافة الرئيسي');
-    setSelectedStoreMain(name);
-    setNewStoreMain('');
+    handleAddMain('stores', name, setSTORES_MAIN_SUBS, setSelectedStoreMain, () => setNewStoreMain(''));
   };
   const removeStoreMain = (name: string) => {
-    setSTORES_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedStoreMain === name) {
-      setSelectedStoreMain('');
-      setSelectedStoreSub('');
-    }
-    const mains = Object.keys(STORES_MAIN_SUBS).filter(x => x !== name);
-    updateOptionsWithToast('stores', storesMainKey, mains, 'تم حذف الرئيسي');
+    handleDeleteMain('stores', name, setSTORES_MAIN_SUBS, selectedStoreMain, setSelectedStoreMain);
   };
   const addStoreSubsBulk = () => {
     if (!selectedStoreMain) return;
     const raw = newStoreSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setSTORES_MAIN_SUBS(prev => {
-      const existing = prev[selectedStoreMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedStoreMain]: [...existing, ...toAdd] };
-    });
-    const list = (STORES_MAIN_SUBS[selectedStoreMain] ?? []).concat(tokens.filter(s => !((STORES_MAIN_SUBS[selectedStoreMain] ?? []).includes(s))));
-    updateOptionsWithToast('stores', storesSubKey, list, 'تم تحديث الفرعي');
-    setSelectedStoreSub('');
-    setNewStoreSubsBulk('');
+    handleAddSubsBulk('stores', selectedStoreMain, tokens, setSTORES_MAIN_SUBS, setSelectedStoreSub, () => setNewStoreSubsBulk(''));
   };
   const removeStoreSub = (s: string) => {
     if (!selectedStoreMain) return;
-    setSTORES_MAIN_SUBS(prev => {
-      const list = prev[selectedStoreMain] ?? [];
-      return { ...prev, [selectedStoreMain]: list.filter(x => x !== s) };
-    });
-    if (selectedStoreSub === s) setSelectedStoreSub('');
-    const list = (STORES_MAIN_SUBS[selectedStoreMain] ?? []).filter(x => x !== s);
-    updateOptionsWithToast('stores', storesSubKey, list, 'تم حذف الفرعي');
+    handleDeleteSub('stores', selectedStoreMain, s, setSTORES_MAIN_SUBS, selectedStoreSub, setSelectedStoreSub);
   };
   const renameStoreMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setSTORES_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedStoreMain === prevName) setSelectedStoreMain(next);
-    const mains = Object.keys(STORES_MAIN_SUBS).map(x => (x === prevName ? next : x));
-    updateOptionsWithToast('stores', storesMainKey, mains, 'تم تعديل الرئيسي');
+    handleRenameMain('stores', prevName, nextRaw, setSTORES_MAIN_SUBS, selectedStoreMain, setSelectedStoreMain);
   };
   const renameStoreSub = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -2408,195 +2674,73 @@ export default function CategoriesPage() {
   const addGroceryMain = () => {
     const name = newGroceryMain.trim();
     if (!name) return;
-    setGROCERIES_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    const nextMains = Object.keys(GROCERIES_MAIN_SUBS).includes(name) ? Object.keys(GROCERIES_MAIN_SUBS) : [...Object.keys(GROCERIES_MAIN_SUBS), name];
-    updateOptionsWithToast('groceries', groceriesMainKey, nextMains, 'تم إضافة الرئيسي');
-    setSelectedGroceryMain(name);
-    setNewGroceryMain('');
+    handleAddMain('groceries', name, setGROCERIES_MAIN_SUBS, setSelectedGroceryMain, () => setNewGroceryMain(''));
   };
   const removeGroceryMain = (name: string) => {
-    setGROCERIES_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedGroceryMain === name) {
-      setSelectedGroceryMain('');
-      setSelectedGrocerySub('');
-    }
-    const mains = Object.keys(GROCERIES_MAIN_SUBS).filter(x => x !== name);
-    updateOptionsWithToast('groceries', groceriesMainKey, mains, 'تم حذف الرئيسي');
+    handleDeleteMain('groceries', name, setGROCERIES_MAIN_SUBS, selectedGroceryMain, setSelectedGroceryMain);
   };
   const addGrocerySubsBulk = () => {
     if (!selectedGroceryMain) return;
     const raw = newGrocerySubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setGROCERIES_MAIN_SUBS(prev => {
-      const existing = prev[selectedGroceryMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedGroceryMain]: [...existing, ...toAdd] };
-    });
-    const list = (GROCERIES_MAIN_SUBS[selectedGroceryMain] ?? []).concat(tokens.filter(s => !((GROCERIES_MAIN_SUBS[selectedGroceryMain] ?? []).includes(s))));
-    updateOptionsWithToast('groceries', groceriesSubKey, list, 'تم تحديث الفرعي');
-    setSelectedGrocerySub('');
-    setNewGrocerySubsBulk('');
+    handleAddSubsBulk('groceries', selectedGroceryMain, tokens, setGROCERIES_MAIN_SUBS, setSelectedGrocerySub, () => setNewGrocerySubsBulk(''));
   };
   const removeGrocerySub = (s: string) => {
     if (!selectedGroceryMain) return;
-    setGROCERIES_MAIN_SUBS(prev => {
-      const list = prev[selectedGroceryMain] ?? [];
-      return { ...prev, [selectedGroceryMain]: list.filter(x => x !== s) };
-    });
-    if (selectedGrocerySub === s) setSelectedGrocerySub('');
-    const list = (GROCERIES_MAIN_SUBS[selectedGroceryMain] ?? []).filter(x => x !== s);
-    updateOptionsWithToast('groceries', groceriesSubKey, list, 'تم حذف الفرعي');
+    handleDeleteSub('groceries', selectedGroceryMain, s, setGROCERIES_MAIN_SUBS, selectedGrocerySub, setSelectedGrocerySub);
   };
   const renameGroceryMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setGROCERIES_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedGroceryMain === prevName) setSelectedGroceryMain(next);
-    const mains = Object.keys(GROCERIES_MAIN_SUBS).map(x => (x === prevName ? next : x));
-    updateOptionsWithToast('groceries', groceriesMainKey, mains, 'تم تعديل الرئيسي');
+    handleRenameMain('groceries', prevName, nextRaw, setGROCERIES_MAIN_SUBS, selectedGroceryMain, setSelectedGroceryMain);
   };
   const renameGrocerySub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedGroceryMain) return;
-    setGROCERIES_MAIN_SUBS(prev => {
-      const list = prev[selectedGroceryMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedGroceryMain]: updated };
-    });
-    if (selectedGrocerySub === prevName) setSelectedGrocerySub(next);
-    const updated = (GROCERIES_MAIN_SUBS[selectedGroceryMain] ?? []).map(x => (x === prevName ? next : x));
-    updateOptionsWithToast('groceries', groceriesSubKey, updated, 'تم تعديل الفرعي');
+    handleRenameSub('groceries', selectedGroceryMain, prevName, nextRaw, setGROCERIES_MAIN_SUBS, selectedGrocerySub, setSelectedGrocerySub);
   };
 
   const addHomeServiceMain = () => {
     const name = newHomeServiceMain.trim();
     if (!name) return;
-    setHOME_SERVICES_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedHomeServiceMain(name);
-    setNewHomeServiceMain('');
+    handleAddMain('home-services', name, setHOME_SERVICES_MAIN_SUBS, setSelectedHomeServiceMain, () => setNewHomeServiceMain(''));
   };
   const removeHomeServiceMain = (name: string) => {
-    setHOME_SERVICES_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedHomeServiceMain === name) {
-      setSelectedHomeServiceMain('');
-      setSelectedHomeServiceSub('');
-    }
+    handleDeleteMain('home-services', name, setHOME_SERVICES_MAIN_SUBS, selectedHomeServiceMain, setSelectedHomeServiceMain);
   };
   const addHomeServiceSubsBulk = () => {
     if (!selectedHomeServiceMain) return;
     const raw = newHomeServiceSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setHOME_SERVICES_MAIN_SUBS(prev => {
-      const existing = prev[selectedHomeServiceMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedHomeServiceMain]: [...existing, ...toAdd] };
-    });
-    setSelectedHomeServiceSub('');
-    setNewHomeServiceSubsBulk('');
+    handleAddSubsBulk('home-services', selectedHomeServiceMain, tokens, setHOME_SERVICES_MAIN_SUBS, setSelectedHomeServiceSub, () => setNewHomeServiceSubsBulk(''));
   };
   const removeHomeServiceSub = (s: string) => {
     if (!selectedHomeServiceMain) return;
-    setHOME_SERVICES_MAIN_SUBS(prev => {
-      const list = prev[selectedHomeServiceMain] ?? [];
-      return { ...prev, [selectedHomeServiceMain]: list.filter(x => x !== s) };
-    });
-    if (selectedHomeServiceSub === s) setSelectedHomeServiceSub('');
+    handleDeleteSub('home-services', selectedHomeServiceMain, s, setHOME_SERVICES_MAIN_SUBS, selectedHomeServiceSub, setSelectedHomeServiceSub);
   };
   const renameHomeServiceMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setHOME_SERVICES_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedHomeServiceMain === prevName) setSelectedHomeServiceMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('home-services', prevName, nextRaw, setHOME_SERVICES_MAIN_SUBS, selectedHomeServiceMain, setSelectedHomeServiceMain);
   };
   const renameHomeServiceSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedHomeServiceMain) return;
-    setHOME_SERVICES_MAIN_SUBS(prev => {
-      const list = prev[selectedHomeServiceMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedHomeServiceMain]: updated };
-    });
-    if (selectedHomeServiceSub === prevName) setSelectedHomeServiceSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('home-services', selectedHomeServiceMain, prevName, nextRaw, setHOME_SERVICES_MAIN_SUBS, selectedHomeServiceSub, setSelectedHomeServiceSub);
   };
 
   const addFurnitureMain = () => {
     const name = newFurnitureMain.trim();
     if (!name) return;
-    setFURNITURE_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedFurnitureMain(name);
-    setNewFurnitureMain('');
+    handleAddMain('furniture', name, setFURNITURE_MAIN_SUBS, setSelectedFurnitureMain, () => setNewFurnitureMain(''));
   };
   const removeFurnitureMain = (name: string) => {
-    setFURNITURE_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedFurnitureMain === name) {
-      setSelectedFurnitureMain('');
-      setSelectedFurnitureSub('');
-    }
+    handleDeleteMain('furniture', name, setFURNITURE_MAIN_SUBS, selectedFurnitureMain, setSelectedFurnitureMain);
   };
   const addFurnitureSubsBulk = () => {
     if (!selectedFurnitureMain) return;
     const raw = newFurnitureSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setFURNITURE_MAIN_SUBS(prev => {
-      const existing = prev[selectedFurnitureMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedFurnitureMain]: [...existing, ...toAdd] };
-    });
-    setSelectedFurnitureSub('');
-    setNewFurnitureSubsBulk('');
+    handleAddSubsBulk('furniture', selectedFurnitureMain, tokens, setFURNITURE_MAIN_SUBS, setSelectedFurnitureSub, () => setNewFurnitureSubsBulk(''));
   };
   const removeFurnitureSub = (s: string) => {
     if (!selectedFurnitureMain) return;
-    setFURNITURE_MAIN_SUBS(prev => {
-      const list = prev[selectedFurnitureMain] ?? [];
-      return { ...prev, [selectedFurnitureMain]: list.filter(x => x !== s) };
-    });
-    if (selectedFurnitureSub === s) setSelectedFurnitureSub('');
+    handleDeleteSub('furniture', selectedFurnitureMain, s, setFURNITURE_MAIN_SUBS, selectedFurnitureSub, setSelectedFurnitureSub);
   };
   const renameFurnitureMain = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -2628,327 +2772,126 @@ export default function CategoriesPage() {
   const addHouseholdToolMain = () => {
     const name = newHouseholdToolMain.trim();
     if (!name) return;
-    setHOUSEHOLD_TOOLS_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedHouseholdToolMain(name);
-    setNewHouseholdToolMain('');
+    handleAddMain('home-tools', name, setHOUSEHOLD_TOOLS_MAIN_SUBS, setSelectedHouseholdToolMain, () => setNewHouseholdToolMain(''));
   };
   const removeHouseholdToolMain = (name: string) => {
-    setHOUSEHOLD_TOOLS_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedHouseholdToolMain === name) {
-      setSelectedHouseholdToolMain('');
-      setSelectedHouseholdToolSub('');
-    }
+    handleDeleteMain('home-tools', name, setHOUSEHOLD_TOOLS_MAIN_SUBS, selectedHouseholdToolMain, setSelectedHouseholdToolMain);
   };
   const addHouseholdToolSubsBulk = () => {
     if (!selectedHouseholdToolMain) return;
     const raw = newHouseholdToolSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setHOUSEHOLD_TOOLS_MAIN_SUBS(prev => {
-      const existing = prev[selectedHouseholdToolMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedHouseholdToolMain]: [...existing, ...toAdd] };
-    });
-    setSelectedHouseholdToolSub('');
-    setNewHouseholdToolSubsBulk('');
+    handleAddSubsBulk('home-tools', selectedHouseholdToolMain, tokens, setHOUSEHOLD_TOOLS_MAIN_SUBS, setSelectedHouseholdToolSub, () => setNewHouseholdToolSubsBulk(''));
   };
   const removeHouseholdToolSub = (s: string) => {
     if (!selectedHouseholdToolMain) return;
-    setHOUSEHOLD_TOOLS_MAIN_SUBS(prev => {
-      const list = prev[selectedHouseholdToolMain] ?? [];
-      return { ...prev, [selectedHouseholdToolMain]: list.filter(x => x !== s) };
-    });
-    if (selectedHouseholdToolSub === s) setSelectedHouseholdToolSub('');
+    handleDeleteSub('home-tools', selectedHouseholdToolMain, s, setHOUSEHOLD_TOOLS_MAIN_SUBS, selectedHouseholdToolSub, setSelectedHouseholdToolSub);
   };
   const renameHouseholdToolMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setHOUSEHOLD_TOOLS_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedHouseholdToolMain === prevName) setSelectedHouseholdToolMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('home-tools', prevName, nextRaw, setHOUSEHOLD_TOOLS_MAIN_SUBS, selectedHouseholdToolMain, setSelectedHouseholdToolMain);
   };
   const renameHouseholdToolSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedHouseholdToolMain) return;
-    setHOUSEHOLD_TOOLS_MAIN_SUBS(prev => {
-      const list = prev[selectedHouseholdToolMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedHouseholdToolMain]: updated };
-    });
-    if (selectedHouseholdToolSub === prevName) setSelectedHouseholdToolSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('home-tools', selectedHouseholdToolMain, prevName, nextRaw, setHOUSEHOLD_TOOLS_MAIN_SUBS, selectedHouseholdToolSub, setSelectedHouseholdToolSub);
   };
 
   const addHomeApplianceMain = () => {
     const name = newHomeApplianceMain.trim();
     if (!name) return;
-    setHOME_APPLIANCES_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedHomeApplianceMain(name);
-    setNewHomeApplianceMain('');
+    handleAddMain('home-appliances', name, setHOME_APPLIANCES_MAIN_SUBS, setSelectedHomeApplianceMain, () => setNewHomeApplianceMain(''));
   };
   const removeHomeApplianceMain = (name: string) => {
-    setHOME_APPLIANCES_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedHomeApplianceMain === name) {
-      setSelectedHomeApplianceMain('');
-      setSelectedHomeApplianceSub('');
-    }
+    handleDeleteMain('home-appliances', name, setHOME_APPLIANCES_MAIN_SUBS, selectedHomeApplianceMain, setSelectedHomeApplianceMain);
   };
   const addHomeApplianceSubsBulk = () => {
     if (!selectedHomeApplianceMain) return;
     const raw = newHomeApplianceSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setHOME_APPLIANCES_MAIN_SUBS(prev => {
-      const existing = prev[selectedHomeApplianceMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedHomeApplianceMain]: [...existing, ...toAdd] };
-    });
-    setSelectedHomeApplianceSub('');
-    setNewHomeApplianceSubsBulk('');
+    handleAddSubsBulk('home-appliances', selectedHomeApplianceMain, tokens, setHOME_APPLIANCES_MAIN_SUBS, setSelectedHomeApplianceSub, () => setNewHomeApplianceSubsBulk(''));
   };
   const removeHomeApplianceSub = (s: string) => {
     if (!selectedHomeApplianceMain) return;
-    setHOME_APPLIANCES_MAIN_SUBS(prev => {
-      const list = prev[selectedHomeApplianceMain] ?? [];
-      return { ...prev, [selectedHomeApplianceMain]: list.filter(x => x !== s) };
-    });
-    if (selectedHomeApplianceSub === s) setSelectedHomeApplianceSub('');
+    handleDeleteSub('home-appliances', selectedHomeApplianceMain, s, setHOME_APPLIANCES_MAIN_SUBS, selectedHomeApplianceSub, setSelectedHomeApplianceSub);
   };
   const renameHomeApplianceMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setHOME_APPLIANCES_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedHomeApplianceMain === prevName) setSelectedHomeApplianceMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('home-appliances', prevName, nextRaw, setHOME_APPLIANCES_MAIN_SUBS, selectedHomeApplianceMain, setSelectedHomeApplianceMain);
   };
   const renameHomeApplianceSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedHomeApplianceMain) return;
-    setHOME_APPLIANCES_MAIN_SUBS(prev => {
-      const list = prev[selectedHomeApplianceMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedHomeApplianceMain]: updated };
-    });
-    if (selectedHomeApplianceSub === prevName) setSelectedHomeApplianceSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('home-appliances', selectedHomeApplianceMain, prevName, nextRaw, setHOME_APPLIANCES_MAIN_SUBS, selectedHomeApplianceSub, setSelectedHomeApplianceSub);
   };
 
   const addElectronicsMain = () => {
     const name = newElectronicsMain.trim();
     if (!name) return;
-    setELECTRONICS_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedElectronicsMain(name);
-    setNewElectronicsMain('');
+    handleAddMain('electronics', name, setELECTRONICS_MAIN_SUBS, setSelectedElectronicsMain, () => setNewElectronicsMain(''));
   };
   const removeElectronicsMain = (name: string) => {
-    setELECTRONICS_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedElectronicsMain === name) {
-      setSelectedElectronicsMain('');
-      setSelectedElectronicsSub('');
-    }
+    handleDeleteMain('electronics', name, setELECTRONICS_MAIN_SUBS, selectedElectronicsMain, setSelectedElectronicsMain);
   };
   const addElectronicsSubsBulk = () => {
     if (!selectedElectronicsMain) return;
     const raw = newElectronicsSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setELECTRONICS_MAIN_SUBS(prev => {
-      const existing = prev[selectedElectronicsMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedElectronicsMain]: [...existing, ...toAdd] };
-    });
-    setSelectedElectronicsSub('');
-    setNewElectronicsSubsBulk('');
+    handleAddSubsBulk('electronics', selectedElectronicsMain, tokens, setELECTRONICS_MAIN_SUBS, setSelectedElectronicsSub, () => setNewElectronicsSubsBulk(''));
   };
   const removeElectronicsSub = (s: string) => {
     if (!selectedElectronicsMain) return;
-    setELECTRONICS_MAIN_SUBS(prev => {
-      const list = prev[selectedElectronicsMain] ?? [];
-      return { ...prev, [selectedElectronicsMain]: list.filter(x => x !== s) };
-    });
-    if (selectedElectronicsSub === s) setSelectedElectronicsSub('');
+    handleDeleteSub('electronics', selectedElectronicsMain, s, setELECTRONICS_MAIN_SUBS, selectedElectronicsSub, setSelectedElectronicsSub);
   };
   const renameElectronicsMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setELECTRONICS_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedElectronicsMain === prevName) setSelectedElectronicsMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('electronics', prevName, nextRaw, setELECTRONICS_MAIN_SUBS, selectedElectronicsMain, setSelectedElectronicsMain);
   };
   const renameElectronicsSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedElectronicsMain) return;
-    setELECTRONICS_MAIN_SUBS(prev => {
-      const list = prev[selectedElectronicsMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedElectronicsMain]: updated };
-    });
-    if (selectedElectronicsSub === prevName) setSelectedElectronicsSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('electronics', selectedElectronicsMain, prevName, nextRaw, setELECTRONICS_MAIN_SUBS, selectedElectronicsSub, setSelectedElectronicsSub);
   };
 
   const addHealthMain = () => {
     const name = newHealthMain.trim();
     if (!name) return;
-    setHEALTH_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedHealthMain(name);
-    setNewHealthMain('');
+    handleAddMain('health', name, setHEALTH_MAIN_SUBS, setSelectedHealthMain, () => setNewHealthMain(''));
   };
   const removeHealthMain = (name: string) => {
-    setHEALTH_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedHealthMain === name) {
-      setSelectedHealthMain('');
-      setSelectedHealthSub('');
-    }
+    handleDeleteMain('health', name, setHEALTH_MAIN_SUBS, selectedHealthMain, setSelectedHealthMain);
   };
   const addHealthSubsBulk = () => {
     if (!selectedHealthMain) return;
     const raw = newHealthSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setHEALTH_MAIN_SUBS(prev => {
-      const existing = prev[selectedHealthMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedHealthMain]: [...existing, ...toAdd] };
-    });
-    setSelectedHealthSub('');
-    setNewHealthSubsBulk('');
+    handleAddSubsBulk('health', selectedHealthMain, tokens, setHEALTH_MAIN_SUBS, setSelectedHealthSub, () => setNewHealthSubsBulk(''));
   };
   const removeHealthSub = (s: string) => {
     if (!selectedHealthMain) return;
-    setHEALTH_MAIN_SUBS(prev => {
-      const list = prev[selectedHealthMain] ?? [];
-      return { ...prev, [selectedHealthMain]: list.filter(x => x !== s) };
-    });
-    if (selectedHealthSub === s) setSelectedHealthSub('');
+    handleDeleteSub('health', selectedHealthMain, s, setHEALTH_MAIN_SUBS, selectedHealthSub, setSelectedHealthSub);
   };
   const renameHealthMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setHEALTH_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedHealthMain === prevName) setSelectedHealthMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('health', prevName, nextRaw, setHEALTH_MAIN_SUBS, selectedHealthMain, setSelectedHealthMain);
   };
   const renameHealthSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedHealthMain) return;
-    setHEALTH_MAIN_SUBS(prev => {
-      const list = prev[selectedHealthMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedHealthMain]: updated };
-    });
-    if (selectedHealthSub === prevName) setSelectedHealthSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('health', selectedHealthMain, prevName, nextRaw, setHEALTH_MAIN_SUBS, selectedHealthSub, setSelectedHealthSub);
   };
 
   const addEducationMain = () => {
     const name = newEducationMain.trim();
     if (!name) return;
-    setEDUCATION_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedEducationMain(name);
-    setNewEducationMain('');
+    handleAddMain('education', name, setEDUCATION_MAIN_SUBS, setSelectedEducationMain, () => setNewEducationMain(''));
   };
   const removeEducationMain = (name: string) => {
-    setEDUCATION_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedEducationMain === name) {
-      setSelectedEducationMain('');
-      setSelectedEducationSub('');
-    }
+    handleDeleteMain('education', name, setEDUCATION_MAIN_SUBS, selectedEducationMain, setSelectedEducationMain);
   };
   const addEducationSubsBulk = () => {
     if (!selectedEducationMain) return;
     const raw = newEducationSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setEDUCATION_MAIN_SUBS(prev => {
-      const existing = prev[selectedEducationMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedEducationMain]: [...existing, ...toAdd] };
-    });
-    setSelectedEducationSub('');
-    setNewEducationSubsBulk('');
+    handleAddSubsBulk('education', selectedEducationMain, tokens, setEDUCATION_MAIN_SUBS, setSelectedEducationSub, () => setNewEducationSubsBulk(''));
   };
   const removeEducationSub = (s: string) => {
     if (!selectedEducationMain) return;
     if (selectedEducationSub === s) { showToast('مرتبط بداتا إعلان، يمكنك التعديل بدلًا من الحذف', 'warning'); return; }
-    setEDUCATION_MAIN_SUBS(prev => {
-      const list = prev[selectedEducationMain] ?? [];
-      return { ...prev, [selectedEducationMain]: list.filter(x => x !== s) };
-    });
-    if (selectedEducationSub === s) setSelectedEducationSub('');
-    showToast('تم حذف الفرعي', 'info');
+    handleDeleteSub('education', selectedEducationMain, s, setEDUCATION_MAIN_SUBS, selectedEducationSub, setSelectedEducationSub);
   };
   const renameEducationMain = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -2980,185 +2923,73 @@ export default function CategoriesPage() {
   const addShippingMain = () => {
     const name = newShippingMain.trim();
     if (!name) return;
-    setSHIPPING_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedShippingMain(name);
-    setNewShippingMain('');
+    handleAddMain('shipping', name, setSHIPPING_MAIN_SUBS, setSelectedShippingMain, () => setNewShippingMain(''));
   };
   const removeShippingMain = (name: string) => {
-    setSHIPPING_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedShippingMain === name) {
-      setSelectedShippingMain('');
-      setSelectedShippingSub('');
-    }
+    handleDeleteMain('shipping', name, setSHIPPING_MAIN_SUBS, selectedShippingMain, setSelectedShippingMain);
   };
   const addShippingSubsBulk = () => {
     if (!selectedShippingMain) return;
     const raw = newShippingSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setSHIPPING_MAIN_SUBS(prev => {
-      const existing = prev[selectedShippingMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedShippingMain]: [...existing, ...toAdd] };
-    });
-    setSelectedShippingSub('');
-    setNewShippingSubsBulk('');
+    handleAddSubsBulk('shipping', selectedShippingMain, tokens, setSHIPPING_MAIN_SUBS, setSelectedShippingSub, () => setNewShippingSubsBulk(''));
   };
   const removeShippingSub = (s: string) => {
     if (!selectedShippingMain) return;
-    setSHIPPING_MAIN_SUBS(prev => {
-      const list = prev[selectedShippingMain] ?? [];
-      return { ...prev, [selectedShippingMain]: list.filter(x => x !== s) };
-    });
-    if (selectedShippingSub === s) setSelectedShippingSub('');
+    handleDeleteSub('shipping', selectedShippingMain, s, setSHIPPING_MAIN_SUBS, selectedShippingSub, setSelectedShippingSub);
   };
   const renameShippingMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setSHIPPING_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedShippingMain === prevName) setSelectedShippingMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('shipping', prevName, nextRaw, setSHIPPING_MAIN_SUBS, selectedShippingMain, setSelectedShippingMain);
   };
   const renameShippingSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedShippingMain) return;
-    setSHIPPING_MAIN_SUBS(prev => {
-      const list = prev[selectedShippingMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedShippingMain]: updated };
-    });
-    if (selectedShippingSub === prevName) setSelectedShippingSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('shipping', selectedShippingMain, prevName, nextRaw, setSHIPPING_MAIN_SUBS, selectedShippingSub, setSelectedShippingSub);
   };
 
   const addMensClothingShoesMain = () => {
     const name = newMensClothingShoesMain.trim();
     if (!name) return;
-    setMENS_CLOTHING_SHOES_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedMensClothingShoesMain(name);
-    setNewMensClothingShoesMain('');
+    handleAddMain('mens-clothes', name, setMENS_CLOTHING_SHOES_MAIN_SUBS, setSelectedMensClothingShoesMain, () => setNewMensClothingShoesMain(''));
   };
   const removeMensClothingShoesMain = (name: string) => {
-    setMENS_CLOTHING_SHOES_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedMensClothingShoesMain === name) {
-      setSelectedMensClothingShoesMain('');
-      setSelectedMensClothingShoesSub('');
-    }
+    handleDeleteMain('mens-clothes', name, setMENS_CLOTHING_SHOES_MAIN_SUBS, selectedMensClothingShoesMain, setSelectedMensClothingShoesMain);
   };
   const addMensClothingShoesSubsBulk = () => {
     if (!selectedMensClothingShoesMain) return;
     const raw = newMensClothingShoesSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setMENS_CLOTHING_SHOES_MAIN_SUBS(prev => {
-      const existing = prev[selectedMensClothingShoesMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedMensClothingShoesMain]: [...existing, ...toAdd] };
-    });
-    setSelectedMensClothingShoesSub('');
-    setNewMensClothingShoesSubsBulk('');
+    handleAddSubsBulk('mens-clothes', selectedMensClothingShoesMain, tokens, setMENS_CLOTHING_SHOES_MAIN_SUBS, setSelectedMensClothingShoesSub, () => setNewMensClothingShoesSubsBulk(''));
   };
   const removeMensClothingShoesSub = (s: string) => {
     if (!selectedMensClothingShoesMain) return;
-    setMENS_CLOTHING_SHOES_MAIN_SUBS(prev => {
-      const list = prev[selectedMensClothingShoesMain] ?? [];
-      return { ...prev, [selectedMensClothingShoesMain]: list.filter(x => x !== s) };
-    });
-    if (selectedMensClothingShoesSub === s) setSelectedMensClothingShoesSub('');
+    handleDeleteSub('mens-clothes', selectedMensClothingShoesMain, s, setMENS_CLOTHING_SHOES_MAIN_SUBS, selectedMensClothingShoesSub, setSelectedMensClothingShoesSub);
   };
   const renameMensClothingShoesMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setMENS_CLOTHING_SHOES_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedMensClothingShoesMain === prevName) setSelectedMensClothingShoesMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('mens-clothes', prevName, nextRaw, setMENS_CLOTHING_SHOES_MAIN_SUBS, selectedMensClothingShoesMain, setSelectedMensClothingShoesMain);
   };
   const renameMensClothingShoesSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedMensClothingShoesMain) return;
-    setMENS_CLOTHING_SHOES_MAIN_SUBS(prev => {
-      const list = prev[selectedMensClothingShoesMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedMensClothingShoesMain]: updated };
-    });
-    if (selectedMensClothingShoesSub === prevName) setSelectedMensClothingShoesSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('mens-clothes', selectedMensClothingShoesMain, prevName, nextRaw, setMENS_CLOTHING_SHOES_MAIN_SUBS, selectedMensClothingShoesSub, setSelectedMensClothingShoesSub);
   };
 
   const addHeavyEquipmentMain = () => {
     const name = newHeavyEquipmentMain.trim();
     if (!name) return;
-    setHEAVY_EQUIPMENT_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedHeavyEquipmentMain(name);
-    setNewHeavyEquipmentMain('');
+    handleAddMain('heavy-transport', name, setHEAVY_EQUIPMENT_MAIN_SUBS, setSelectedHeavyEquipmentMain, () => setNewHeavyEquipmentMain(''));
   };
   const removeHeavyEquipmentMain = (name: string) => {
-    setHEAVY_EQUIPMENT_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedHeavyEquipmentMain === name) {
-      setSelectedHeavyEquipmentMain('');
-      setSelectedHeavyEquipmentSub('');
-    }
+    handleDeleteMain('heavy-transport', name, setHEAVY_EQUIPMENT_MAIN_SUBS, selectedHeavyEquipmentMain, setSelectedHeavyEquipmentMain);
   };
   const addHeavyEquipmentSubsBulk = () => {
     if (!selectedHeavyEquipmentMain) return;
     const raw = newHeavyEquipmentSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setHEAVY_EQUIPMENT_MAIN_SUBS(prev => {
-      const existing = prev[selectedHeavyEquipmentMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedHeavyEquipmentMain]: [...existing, ...toAdd] };
-    });
-    setSelectedHeavyEquipmentSub('');
-    setNewHeavyEquipmentSubsBulk('');
+    handleAddSubsBulk('heavy-transport', selectedHeavyEquipmentMain, tokens, setHEAVY_EQUIPMENT_MAIN_SUBS, setSelectedHeavyEquipmentSub, () => setNewHeavyEquipmentSubsBulk(''));
   };
   const removeHeavyEquipmentSub = (s: string) => {
     if (!selectedHeavyEquipmentMain) return;
-    setHEAVY_EQUIPMENT_MAIN_SUBS(prev => {
-      const list = prev[selectedHeavyEquipmentMain] ?? [];
-      return { ...prev, [selectedHeavyEquipmentMain]: list.filter(x => x !== s) };
-    });
-    if (selectedHeavyEquipmentSub === s) setSelectedHeavyEquipmentSub('');
+    handleDeleteSub('heavy-transport', selectedHeavyEquipmentMain, s, setHEAVY_EQUIPMENT_MAIN_SUBS, selectedHeavyEquipmentSub, setSelectedHeavyEquipmentSub);
   };
   const renameHeavyEquipmentMain = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -3190,45 +3021,21 @@ export default function CategoriesPage() {
   const addKidsSuppliesToysMain = () => {
     const name = newKidsSuppliesToysMain.trim();
     if (!name) return;
-    setKIDS_SUPPLIES_TOYS_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedKidsSuppliesToysMain(name);
-    setNewKidsSuppliesToysMain('');
+    handleAddMain('kids-toys', name, setKIDS_SUPPLIES_TOYS_MAIN_SUBS, setSelectedKidsSuppliesToysMain, () => setNewKidsSuppliesToysMain(''));
   };
   const removeKidsSuppliesToysMain = (name: string) => {
-    setKIDS_SUPPLIES_TOYS_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedKidsSuppliesToysMain === name) {
-      setSelectedKidsSuppliesToysMain('');
-      setSelectedKidsSuppliesToysSub('');
-    }
+    handleDeleteMain('kids-toys', name, setKIDS_SUPPLIES_TOYS_MAIN_SUBS, selectedKidsSuppliesToysMain, setSelectedKidsSuppliesToysMain);
   };
   const addKidsSuppliesToysSubsBulk = () => {
     if (!selectedKidsSuppliesToysMain) return;
     const raw = newKidsSuppliesToysSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setKIDS_SUPPLIES_TOYS_MAIN_SUBS(prev => {
-      const existing = prev[selectedKidsSuppliesToysMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedKidsSuppliesToysMain]: [...existing, ...toAdd] };
-    });
-    setSelectedKidsSuppliesToysSub('');
-    setNewKidsSuppliesToysSubsBulk('');
+    handleAddSubsBulk('kids-toys', selectedKidsSuppliesToysMain, tokens, setKIDS_SUPPLIES_TOYS_MAIN_SUBS, setSelectedKidsSuppliesToysSub, () => setNewKidsSuppliesToysSubsBulk(''));
   };
   const removeKidsSuppliesToysSub = (s: string) => {
     if (!selectedKidsSuppliesToysMain) return;
-    setKIDS_SUPPLIES_TOYS_MAIN_SUBS(prev => {
-      const list = prev[selectedKidsSuppliesToysMain] ?? [];
-      return { ...prev, [selectedKidsSuppliesToysMain]: list.filter(x => x !== s) };
-    });
-    if (selectedKidsSuppliesToysSub === s) setSelectedKidsSuppliesToysSub('');
+    handleDeleteSub('kids-toys', selectedKidsSuppliesToysMain, s, setKIDS_SUPPLIES_TOYS_MAIN_SUBS, selectedKidsSuppliesToysSub, setSelectedKidsSuppliesToysSub);
   };
 
   const renameKidsSuppliesToysMain = (prevName: string, nextRaw: string) => {
@@ -3260,45 +3067,21 @@ export default function CategoriesPage() {
   const addFreelanceServicesMain = () => {
     const name = newFreelanceServicesMain.trim();
     if (!name) return;
-    setFREELANCE_SERVICES_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedFreelanceServicesMain(name);
-    setNewFreelanceServicesMain('');
+    handleAddMain('free-professions', name, setFREELANCE_SERVICES_MAIN_SUBS, setSelectedFreelanceServicesMain, () => setNewFreelanceServicesMain(''));
   };
   const removeFreelanceServicesMain = (name: string) => {
-    setFREELANCE_SERVICES_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedFreelanceServicesMain === name) {
-      setSelectedFreelanceServicesMain('');
-      setSelectedFreelanceServicesSub('');
-    }
+    handleDeleteMain('free-professions', name, setFREELANCE_SERVICES_MAIN_SUBS, selectedFreelanceServicesMain, setSelectedFreelanceServicesMain);
   };
   const addFreelanceServicesSubsBulk = () => {
     if (!selectedFreelanceServicesMain) return;
     const raw = newFreelanceServicesSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setFREELANCE_SERVICES_MAIN_SUBS(prev => {
-      const existing = prev[selectedFreelanceServicesMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedFreelanceServicesMain]: [...existing, ...toAdd] };
-    });
-    setSelectedFreelanceServicesSub('');
-    setNewFreelanceServicesSubsBulk('');
+    handleAddSubsBulk('free-professions', selectedFreelanceServicesMain, tokens, setFREELANCE_SERVICES_MAIN_SUBS, setSelectedFreelanceServicesSub, () => setNewFreelanceServicesSubsBulk(''));
   };
   const removeFreelanceServicesSub = (s: string) => {
     if (!selectedFreelanceServicesMain) return;
-    setFREELANCE_SERVICES_MAIN_SUBS(prev => {
-      const list = prev[selectedFreelanceServicesMain] ?? [];
-      return { ...prev, [selectedFreelanceServicesMain]: list.filter(x => x !== s) };
-    });
-    if (selectedFreelanceServicesSub === s) setSelectedFreelanceServicesSub('');
+    handleDeleteSub('free-professions', selectedFreelanceServicesMain, s, setFREELANCE_SERVICES_MAIN_SUBS, selectedFreelanceServicesSub, setSelectedFreelanceServicesSub);
   };
   const renameFreelanceServicesMain = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -3330,45 +3113,21 @@ export default function CategoriesPage() {
   const addWatchesJewelryMain = () => {
     const name = newWatchesJewelryMain.trim();
     if (!name) return;
-    setWATCHES_JEWELRY_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedWatchesJewelryMain(name);
-    setNewWatchesJewelryMain('');
+    handleAddMain('watches-jewelry', name, setWATCHES_JEWELRY_MAIN_SUBS, setSelectedWatchesJewelryMain, () => setNewWatchesJewelryMain(''));
   };
   const removeWatchesJewelryMain = (name: string) => {
-    setWATCHES_JEWELRY_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedWatchesJewelryMain === name) {
-      setSelectedWatchesJewelryMain('');
-      setSelectedWatchesJewelrySub('');
-    }
+    handleDeleteMain('watches-jewelry', name, setWATCHES_JEWELRY_MAIN_SUBS, selectedWatchesJewelryMain, setSelectedWatchesJewelryMain);
   };
   const addWatchesJewelrySubsBulk = () => {
     if (!selectedWatchesJewelryMain) return;
     const raw = newWatchesJewelrySubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setWATCHES_JEWELRY_MAIN_SUBS(prev => {
-      const existing = prev[selectedWatchesJewelryMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedWatchesJewelryMain]: [...existing, ...toAdd] };
-    });
-    setSelectedWatchesJewelrySub('');
-    setNewWatchesJewelrySubsBulk('');
+    handleAddSubsBulk('watches-jewelry', selectedWatchesJewelryMain, tokens, setWATCHES_JEWELRY_MAIN_SUBS, setSelectedWatchesJewelrySub, () => setNewWatchesJewelrySubsBulk(''));
   };
   const removeWatchesJewelrySub = (s: string) => {
     if (!selectedWatchesJewelryMain) return;
-    setWATCHES_JEWELRY_MAIN_SUBS(prev => {
-      const list = prev[selectedWatchesJewelryMain] ?? [];
-      return { ...prev, [selectedWatchesJewelryMain]: list.filter(x => x !== s) };
-    });
-    if (selectedWatchesJewelrySub === s) setSelectedWatchesJewelrySub('');
+    handleDeleteSub('watches-jewelry', selectedWatchesJewelryMain, s, setWATCHES_JEWELRY_MAIN_SUBS, selectedWatchesJewelrySub, setSelectedWatchesJewelrySub);
   };
   const renameWatchesJewelryMain = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -3400,45 +3159,22 @@ export default function CategoriesPage() {
   const addCarServicesMain = () => {
     const name = newCarServicesMain.trim();
     if (!name) return;
-    setCAR_SERVICES_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedCarServicesMain(name);
-    setNewCarServicesMain('');
+    handleAddMain('car-services', name, setCAR_SERVICES_MAIN_SUBS, setSelectedCarServicesMain, () => setNewCarServicesMain(''));
   };
   const removeCarServicesMain = (name: string) => {
-    setCAR_SERVICES_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedCarServicesMain === name) {
-      setSelectedCarServicesMain('');
-      setSelectedCarServicesSub('');
-    }
+    handleDeleteMain('car-services', name, setCAR_SERVICES_MAIN_SUBS, selectedCarServicesMain, setSelectedCarServicesMain);
   };
+  
   const addCarServicesSubsBulk = () => {
     if (!selectedCarServicesMain) return;
     const raw = newCarServicesSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setCAR_SERVICES_MAIN_SUBS(prev => {
-      const existing = prev[selectedCarServicesMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedCarServicesMain]: [...existing, ...toAdd] };
-    });
-    setSelectedCarServicesSub('');
-    setNewCarServicesSubsBulk('');
+    handleAddSubsBulk('car-services', selectedCarServicesMain, tokens, setCAR_SERVICES_MAIN_SUBS, setSelectedCarServicesSub, () => setNewCarServicesSubsBulk(''));
   };
   const removeCarServicesSub = (s: string) => {
     if (!selectedCarServicesMain) return;
-    setCAR_SERVICES_MAIN_SUBS(prev => {
-      const list = prev[selectedCarServicesMain] ?? [];
-      return { ...prev, [selectedCarServicesMain]: list.filter(x => x !== s) };
-    });
-    if (selectedCarServicesSub === s) setSelectedCarServicesSub('');
+    handleDeleteSub('car-services', selectedCarServicesMain, s, setCAR_SERVICES_MAIN_SUBS, selectedCarServicesSub, setSelectedCarServicesSub);
   };
   const renameCarServicesMain = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -3470,395 +3206,151 @@ export default function CategoriesPage() {
   const addGeneralMaintenanceMain = () => {
     const name = newGeneralMaintenanceMain.trim();
     if (!name) return;
-    setGENERAL_MAINTENANCE_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedGeneralMaintenanceMain(name);
-    setNewGeneralMaintenanceMain('');
+    handleAddMain('maintenance', name, setGENERAL_MAINTENANCE_MAIN_SUBS, setSelectedGeneralMaintenanceMain, () => setNewGeneralMaintenanceMain(''));
   };
   const removeGeneralMaintenanceMain = (name: string) => {
-    setGENERAL_MAINTENANCE_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedGeneralMaintenanceMain === name) {
-      setSelectedGeneralMaintenanceMain('');
-      setSelectedGeneralMaintenanceSub('');
-    }
+    handleDeleteMain('maintenance', name, setGENERAL_MAINTENANCE_MAIN_SUBS, selectedGeneralMaintenanceMain, setSelectedGeneralMaintenanceMain);
   };
   const addGeneralMaintenanceSubsBulk = () => {
     if (!selectedGeneralMaintenanceMain) return;
     const raw = newGeneralMaintenanceSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setGENERAL_MAINTENANCE_MAIN_SUBS(prev => {
-      const existing = prev[selectedGeneralMaintenanceMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedGeneralMaintenanceMain]: [...existing, ...toAdd] };
-    });
-    setSelectedGeneralMaintenanceSub('');
-    setNewGeneralMaintenanceSubsBulk('');
+    handleAddSubsBulk('maintenance', selectedGeneralMaintenanceMain, tokens, setGENERAL_MAINTENANCE_MAIN_SUBS, setSelectedGeneralMaintenanceSub, () => setNewGeneralMaintenanceSubsBulk(''));
   };
   const removeGeneralMaintenanceSub = (s: string) => {
     if (!selectedGeneralMaintenanceMain) return;
-    setGENERAL_MAINTENANCE_MAIN_SUBS(prev => {
-      const list = prev[selectedGeneralMaintenanceMain] ?? [];
-      return { ...prev, [selectedGeneralMaintenanceMain]: list.filter(x => x !== s) };
-    });
-    if (selectedGeneralMaintenanceSub === s) setSelectedGeneralMaintenanceSub('');
+    handleDeleteSub('maintenance', selectedGeneralMaintenanceMain, s, setGENERAL_MAINTENANCE_MAIN_SUBS, selectedGeneralMaintenanceSub, setSelectedGeneralMaintenanceSub);
   };
   const renameGeneralMaintenanceMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setGENERAL_MAINTENANCE_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedGeneralMaintenanceMain === prevName) setSelectedGeneralMaintenanceMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('maintenance', prevName, nextRaw, setGENERAL_MAINTENANCE_MAIN_SUBS, selectedGeneralMaintenanceMain, setSelectedGeneralMaintenanceMain);
   };
   const renameGeneralMaintenanceSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedGeneralMaintenanceMain) return;
-    setGENERAL_MAINTENANCE_MAIN_SUBS(prev => {
-      const list = prev[selectedGeneralMaintenanceMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedGeneralMaintenanceMain]: updated };
-    });
-    if (selectedGeneralMaintenanceSub === prevName) setSelectedGeneralMaintenanceSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('maintenance', selectedGeneralMaintenanceMain, prevName, nextRaw, setGENERAL_MAINTENANCE_MAIN_SUBS, selectedGeneralMaintenanceSub, setSelectedGeneralMaintenanceSub);
   };
 
   const addConstructionToolsMain = () => {
     const name = newConstructionToolsMain.trim();
     if (!name) return;
-    setCONSTRUCTION_TOOLS_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedConstructionToolsMain(name);
-    setNewConstructionToolsMain('');
+    handleAddMain('construction', name, setCONSTRUCTION_TOOLS_MAIN_SUBS, setSelectedConstructionToolsMain, () => setNewConstructionToolsMain(''));
   };
   const removeConstructionToolsMain = (name: string) => {
-    setCONSTRUCTION_TOOLS_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedConstructionToolsMain === name) {
-      setSelectedConstructionToolsMain('');
-      setSelectedConstructionToolsSub('');
-    }
+    handleDeleteMain('construction', name, setCONSTRUCTION_TOOLS_MAIN_SUBS, selectedConstructionToolsMain, setSelectedConstructionToolsMain);
   };
   const addConstructionToolsSubsBulk = () => {
     if (!selectedConstructionToolsMain) return;
     const raw = newConstructionToolsSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setCONSTRUCTION_TOOLS_MAIN_SUBS(prev => {
-      const existing = prev[selectedConstructionToolsMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedConstructionToolsMain]: [...existing, ...toAdd] };
-    });
-    setSelectedConstructionToolsSub('');
-    setNewConstructionToolsSubsBulk('');
+    handleAddSubsBulk('construction', selectedConstructionToolsMain, tokens, setCONSTRUCTION_TOOLS_MAIN_SUBS, setSelectedConstructionToolsSub, () => setNewConstructionToolsSubsBulk(''));
   };
   const removeConstructionToolsSub = (s: string) => {
     if (!selectedConstructionToolsMain) return;
-    setCONSTRUCTION_TOOLS_MAIN_SUBS(prev => {
-      const list = prev[selectedConstructionToolsMain] ?? [];
-      return { ...prev, [selectedConstructionToolsMain]: list.filter(x => x !== s) };
-    });
-    if (selectedConstructionToolsSub === s) setSelectedConstructionToolsSub('');
+    handleDeleteSub('construction', selectedConstructionToolsMain, s, setCONSTRUCTION_TOOLS_MAIN_SUBS, selectedConstructionToolsSub, setSelectedConstructionToolsSub);
   };
   const renameConstructionToolsMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setCONSTRUCTION_TOOLS_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedConstructionToolsMain === prevName) setSelectedConstructionToolsMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('construction', prevName, nextRaw, setCONSTRUCTION_TOOLS_MAIN_SUBS, selectedConstructionToolsMain, setSelectedConstructionToolsMain);
   };
   const renameConstructionToolsSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedConstructionToolsMain) return;
-    setCONSTRUCTION_TOOLS_MAIN_SUBS(prev => {
-      const list = prev[selectedConstructionToolsMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedConstructionToolsMain]: updated };
-    });
-    if (selectedConstructionToolsSub === prevName) setSelectedConstructionToolsSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('construction', selectedConstructionToolsMain, prevName, nextRaw, setCONSTRUCTION_TOOLS_MAIN_SUBS, selectedConstructionToolsSub, setSelectedConstructionToolsSub);
   };
 
   const addGymsMain = () => {
     const name = newGymsMain.trim();
     if (!name) return;
-    setGYMS_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedGymsMain(name);
-    setNewGymsMain('');
+    handleAddMain('gym', name, setGYMS_MAIN_SUBS, setSelectedGymsMain, () => setNewGymsMain(''));
   };
   const removeGymsMain = (name: string) => {
-    setGYMS_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedGymsMain === name) {
-      setSelectedGymsMain('');
-      setSelectedGymsSub('');
-    }
+    handleDeleteMain('gym', name, setGYMS_MAIN_SUBS, selectedGymsMain, setSelectedGymsMain);
   };
   const addGymsSubsBulk = () => {
     if (!selectedGymsMain) return;
     const raw = newGymsSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setGYMS_MAIN_SUBS(prev => {
-      const existing = prev[selectedGymsMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedGymsMain]: [...existing, ...toAdd] };
-    });
-    setSelectedGymsSub('');
-    setNewGymsSubsBulk('');
+    handleAddSubsBulk('gym', selectedGymsMain, tokens, setGYMS_MAIN_SUBS, setSelectedGymsSub, () => setNewGymsSubsBulk(''));
   };
   const removeGymsSub = (s: string) => {
     if (!selectedGymsMain) return;
-    setGYMS_MAIN_SUBS(prev => {
-      const list = prev[selectedGymsMain] ?? [];
-      return { ...prev, [selectedGymsMain]: list.filter(x => x !== s) };
-    });
-    if (selectedGymsSub === s) setSelectedGymsSub('');
+    handleDeleteSub('gym', selectedGymsMain, s, setGYMS_MAIN_SUBS, selectedGymsSub, setSelectedGymsSub);
   };
   const renameGymsMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setGYMS_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedGymsMain === prevName) setSelectedGymsMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('gym', prevName, nextRaw, setGYMS_MAIN_SUBS, selectedGymsMain, setSelectedGymsMain);
   };
   const renameGymsSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedGymsMain) return;
-    setGYMS_MAIN_SUBS(prev => {
-      const list = prev[selectedGymsMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedGymsMain]: updated };
-    });
-    if (selectedGymsSub === prevName) setSelectedGymsSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('gym', selectedGymsMain, prevName, nextRaw, setGYMS_MAIN_SUBS, selectedGymsSub, setSelectedGymsSub);
   };
 
   const addBikesLightVehiclesMain = () => {
     const name = newBikesLightVehiclesMain.trim();
     if (!name) return;
-    setBIKES_LIGHT_VEHICLES_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedBikesLightVehiclesMain(name);
-    setNewBikesLightVehiclesMain('');
+    handleAddMain('light-vehicles', name, setBIKES_LIGHT_VEHICLES_MAIN_SUBS, setSelectedBikesLightVehiclesMain, () => setNewBikesLightVehiclesMain(''));
   };
   const removeBikesLightVehiclesMain = (name: string) => {
-    setBIKES_LIGHT_VEHICLES_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedBikesLightVehiclesMain === name) {
-      setSelectedBikesLightVehiclesMain('');
-      setSelectedBikesLightVehiclesSub('');
-    }
+    handleDeleteMain('light-vehicles', name, setBIKES_LIGHT_VEHICLES_MAIN_SUBS, selectedBikesLightVehiclesMain, setSelectedBikesLightVehiclesMain);
   };
   const addBikesLightVehiclesSubsBulk = () => {
     if (!selectedBikesLightVehiclesMain) return;
     const raw = newBikesLightVehiclesSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setBIKES_LIGHT_VEHICLES_MAIN_SUBS(prev => {
-      const existing = prev[selectedBikesLightVehiclesMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedBikesLightVehiclesMain]: [...existing, ...toAdd] };
-    });
-    setSelectedBikesLightVehiclesSub('');
-    setNewBikesLightVehiclesSubsBulk('');
+    handleAddSubsBulk('light-vehicles', selectedBikesLightVehiclesMain, tokens, setBIKES_LIGHT_VEHICLES_MAIN_SUBS, setSelectedBikesLightVehiclesSub, () => setNewBikesLightVehiclesSubsBulk(''));
   };
   const removeBikesLightVehiclesSub = (s: string) => {
     if (!selectedBikesLightVehiclesMain) return;
-    setBIKES_LIGHT_VEHICLES_MAIN_SUBS(prev => {
-      const list = prev[selectedBikesLightVehiclesMain] ?? [];
-      return { ...prev, [selectedBikesLightVehiclesMain]: list.filter(x => x !== s) };
-    });
-    if (selectedBikesLightVehiclesSub === s) setSelectedBikesLightVehiclesSub('');
+    handleDeleteSub('light-vehicles', selectedBikesLightVehiclesMain, s, setBIKES_LIGHT_VEHICLES_MAIN_SUBS, selectedBikesLightVehiclesSub, setSelectedBikesLightVehiclesSub);
   };
   const renameBikesLightVehiclesMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setBIKES_LIGHT_VEHICLES_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedBikesLightVehiclesMain === prevName) setSelectedBikesLightVehiclesMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('light-vehicles', prevName, nextRaw, setBIKES_LIGHT_VEHICLES_MAIN_SUBS, selectedBikesLightVehiclesMain, setSelectedBikesLightVehiclesMain);
   };
   const renameBikesLightVehiclesSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedBikesLightVehiclesMain) return;
-    setBIKES_LIGHT_VEHICLES_MAIN_SUBS(prev => {
-      const list = prev[selectedBikesLightVehiclesMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedBikesLightVehiclesMain]: updated };
-    });
-    if (selectedBikesLightVehiclesSub === prevName) setSelectedBikesLightVehiclesSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('light-vehicles', selectedBikesLightVehiclesMain, prevName, nextRaw, setBIKES_LIGHT_VEHICLES_MAIN_SUBS, selectedBikesLightVehiclesSub, setSelectedBikesLightVehiclesSub);
   };
 
   const addMaterialsProductionLinesMain = () => {
     const name = newMaterialsProductionLinesMain.trim();
     if (!name) return;
-    setMATERIALS_PRODUCTION_LINES_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedMaterialsProductionLinesMain(name);
-    setNewMaterialsProductionLinesMain('');
+    handleAddMain('production-lines', name, setMATERIALS_PRODUCTION_LINES_MAIN_SUBS, setSelectedMaterialsProductionLinesMain, () => setNewMaterialsProductionLinesMain(''));
   };
   const removeMaterialsProductionLinesMain = (name: string) => {
-    setMATERIALS_PRODUCTION_LINES_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedMaterialsProductionLinesMain === name) {
-      setSelectedMaterialsProductionLinesMain('');
-      setSelectedMaterialsProductionLinesSub('');
-    }
+    handleDeleteMain('production-lines', name, setMATERIALS_PRODUCTION_LINES_MAIN_SUBS, selectedMaterialsProductionLinesMain, setSelectedMaterialsProductionLinesMain);
   };
   const addMaterialsProductionLinesSubsBulk = () => {
     if (!selectedMaterialsProductionLinesMain) return;
     const raw = newMaterialsProductionLinesSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setMATERIALS_PRODUCTION_LINES_MAIN_SUBS(prev => {
-      const existing = prev[selectedMaterialsProductionLinesMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedMaterialsProductionLinesMain]: [...existing, ...toAdd] };
-    });
-    setSelectedMaterialsProductionLinesSub('');
-    setNewMaterialsProductionLinesSubsBulk('');
+    handleAddSubsBulk('production-lines', selectedMaterialsProductionLinesMain, tokens, setMATERIALS_PRODUCTION_LINES_MAIN_SUBS, setSelectedMaterialsProductionLinesSub, () => setNewMaterialsProductionLinesSubsBulk(''));
   };
   const removeMaterialsProductionLinesSub = (s: string) => {
     if (!selectedMaterialsProductionLinesMain) return;
-    setMATERIALS_PRODUCTION_LINES_MAIN_SUBS(prev => {
-      const list = prev[selectedMaterialsProductionLinesMain] ?? [];
-      return { ...prev, [selectedMaterialsProductionLinesMain]: list.filter(x => x !== s) };
-    });
-    if (selectedMaterialsProductionLinesSub === s) setSelectedMaterialsProductionLinesSub('');
+    handleDeleteSub('production-lines', selectedMaterialsProductionLinesMain, s, setMATERIALS_PRODUCTION_LINES_MAIN_SUBS, selectedMaterialsProductionLinesSub, setSelectedMaterialsProductionLinesSub);
   };
   const renameMaterialsProductionLinesMain = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next) return;
-    setMATERIALS_PRODUCTION_LINES_MAIN_SUBS(prev => {
-      if (prev[next]) return prev;
-      const n = { ...prev };
-      const list = n[prevName] ?? [];
-      delete n[prevName];
-      n[next] = list;
-      return n;
-    });
-    if (selectedMaterialsProductionLinesMain === prevName) setSelectedMaterialsProductionLinesMain(next);
-    showToast('تم تعديل الرئيسي', 'success');
+    handleRenameMain('production-lines', prevName, nextRaw, setMATERIALS_PRODUCTION_LINES_MAIN_SUBS, selectedMaterialsProductionLinesMain, setSelectedMaterialsProductionLinesMain);
   };
   const renameMaterialsProductionLinesSub = (prevName: string, nextRaw: string) => {
-    const next = nextRaw.trim();
-    if (!next || prevName === next || !selectedMaterialsProductionLinesMain) return;
-    setMATERIALS_PRODUCTION_LINES_MAIN_SUBS(prev => {
-      const list = prev[selectedMaterialsProductionLinesMain] ?? [];
-      if (list.includes(next)) return prev;
-      const updated = list.map(x => (x === prevName ? next : x));
-      return { ...prev, [selectedMaterialsProductionLinesMain]: updated };
-    });
-    if (selectedMaterialsProductionLinesSub === prevName) setSelectedMaterialsProductionLinesSub(next);
-    showToast('تم تعديل الفرعي', 'success');
+    handleRenameSub('production-lines', selectedMaterialsProductionLinesMain, prevName, nextRaw, setMATERIALS_PRODUCTION_LINES_MAIN_SUBS, selectedMaterialsProductionLinesSub, setSelectedMaterialsProductionLinesSub);
   };
 
   const addFarmsFactoriesProductsMain = () => {
     const name = newFarmsFactoriesProductsMain.trim();
     if (!name) return;
-    setFARMS_FACTORIES_PRODUCTS_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedFarmsFactoriesProductsMain(name);
-    setNewFarmsFactoriesProductsMain('');
+    handleAddMain('farm-products', name, setFARMS_FACTORIES_PRODUCTS_MAIN_SUBS, setSelectedFarmsFactoriesProductsMain, () => setNewFarmsFactoriesProductsMain(''));
   };
   const removeFarmsFactoriesProductsMain = (name: string) => {
-    setFARMS_FACTORIES_PRODUCTS_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedFarmsFactoriesProductsMain === name) {
-      setSelectedFarmsFactoriesProductsMain('');
-      setSelectedFarmsFactoriesProductsSub('');
-    }
+    handleDeleteMain('farm-products', name, setFARMS_FACTORIES_PRODUCTS_MAIN_SUBS, selectedFarmsFactoriesProductsMain, setSelectedFarmsFactoriesProductsMain);
   };
   const addFarmsFactoriesProductsSubsBulk = () => {
     if (!selectedFarmsFactoriesProductsMain) return;
     const raw = newFarmsFactoriesProductsSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setFARMS_FACTORIES_PRODUCTS_MAIN_SUBS(prev => {
-      const existing = prev[selectedFarmsFactoriesProductsMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedFarmsFactoriesProductsMain]: [...existing, ...toAdd] };
-    });
-    setSelectedFarmsFactoriesProductsSub('');
-    setNewFarmsFactoriesProductsSubsBulk('');
+    handleAddSubsBulk('farm-products', selectedFarmsFactoriesProductsMain, tokens, setFARMS_FACTORIES_PRODUCTS_MAIN_SUBS, setSelectedFarmsFactoriesProductsSub, () => setNewFarmsFactoriesProductsSubsBulk(''));
   };
   const removeFarmsFactoriesProductsSub = (s: string) => {
     if (!selectedFarmsFactoriesProductsMain) return;
-    setFARMS_FACTORIES_PRODUCTS_MAIN_SUBS(prev => {
-      const list = prev[selectedFarmsFactoriesProductsMain] ?? [];
-      return { ...prev, [selectedFarmsFactoriesProductsMain]: list.filter(x => x !== s) };
-    });
-    if (selectedFarmsFactoriesProductsSub === s) setSelectedFarmsFactoriesProductsSub('');
+    handleDeleteSub('farm-products', selectedFarmsFactoriesProductsMain, s, setFARMS_FACTORIES_PRODUCTS_MAIN_SUBS, selectedFarmsFactoriesProductsSub, setSelectedFarmsFactoriesProductsSub);
   };
   const renameFarmsFactoriesProductsMain = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -3890,45 +3382,21 @@ export default function CategoriesPage() {
   const addLightingDecorMain = () => {
     const name = newLightingDecorMain.trim();
     if (!name) return;
-    setLIGHTING_DECOR_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedLightingDecorMain(name);
-    setNewLightingDecorMain('');
+    handleAddMain('lighting-decor', name, setLIGHTING_DECOR_MAIN_SUBS, setSelectedLightingDecorMain, () => setNewLightingDecorMain(''));
   };
   const removeLightingDecorMain = (name: string) => {
-    setLIGHTING_DECOR_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedLightingDecorMain === name) {
-      setSelectedLightingDecorMain('');
-      setSelectedLightingDecorSub('');
-    }
+    handleDeleteMain('lighting-decor', name, setLIGHTING_DECOR_MAIN_SUBS, selectedLightingDecorMain, setSelectedLightingDecorMain);
   };
   const addLightingDecorSubsBulk = () => {
     if (!selectedLightingDecorMain) return;
     const raw = newLightingDecorSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setLIGHTING_DECOR_MAIN_SUBS(prev => {
-      const existing = prev[selectedLightingDecorMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedLightingDecorMain]: [...existing, ...toAdd] };
-    });
-    setSelectedLightingDecorSub('');
-    setNewLightingDecorSubsBulk('');
+    handleAddSubsBulk('lighting-decor', selectedLightingDecorMain, tokens, setLIGHTING_DECOR_MAIN_SUBS, setSelectedLightingDecorSub, () => setNewLightingDecorSubsBulk(''));
   };
   const removeLightingDecorSub = (s: string) => {
     if (!selectedLightingDecorMain) return;
-    setLIGHTING_DECOR_MAIN_SUBS(prev => {
-      const list = prev[selectedLightingDecorMain] ?? [];
-      return { ...prev, [selectedLightingDecorMain]: list.filter(x => x !== s) };
-    });
-    if (selectedLightingDecorSub === s) setSelectedLightingDecorSub('');
+    handleDeleteSub('lighting-decor', selectedLightingDecorMain, s, setLIGHTING_DECOR_MAIN_SUBS, selectedLightingDecorSub, setSelectedLightingDecorSub);
   };
   const renameLightingDecorMain = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -3957,48 +3425,25 @@ export default function CategoriesPage() {
     showToast('تم تعديل الفرعي', 'success');
   };
 
+  
+  const removeMissingMain = (name: string) => {
+    handleDeleteMain('missing', name, setMISSING_MAIN_SUBS, selectedMissingMain, setSelectedMissingMain);
+  };
   const addMissingMain = () => {
     const name = newMissingMain.trim();
     if (!name) return;
-    setMISSING_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedMissingMain(name);
-    setNewMissingMain('');
-  };
-  const removeMissingMain = (name: string) => {
-    setMISSING_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedMissingMain === name) {
-      setSelectedMissingMain('');
-      setSelectedMissingSub('');
-    }
+    handleAddMain('missing', name, setMISSING_MAIN_SUBS, setSelectedMissingMain, () => setNewMissingMain(''));
   };
   const addMissingSubsBulk = () => {
     if (!selectedMissingMain) return;
     const raw = newMissingSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setMISSING_MAIN_SUBS(prev => {
-      const existing = prev[selectedMissingMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedMissingMain]: [...existing, ...toAdd] };
-    });
-    setSelectedMissingSub('');
-    setNewMissingSubsBulk('');
+    handleAddSubsBulk('missing', selectedMissingMain, tokens, setMISSING_MAIN_SUBS, setSelectedMissingSub, () => setNewMissingSubsBulk(''));
   };
   const removeMissingSub = (s: string) => {
     if (!selectedMissingMain) return;
-    setMISSING_MAIN_SUBS(prev => {
-      const list = prev[selectedMissingMain] ?? [];
-      return { ...prev, [selectedMissingMain]: list.filter(x => x !== s) };
-    });
-    if (selectedMissingSub === s) setSelectedMissingSub('');
+    handleDeleteSub('missing', selectedMissingMain, s, setMISSING_MAIN_SUBS, selectedMissingSub, setSelectedMissingSub);
   };
   const renameMissingMain = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -4030,45 +3475,21 @@ export default function CategoriesPage() {
   const addToolsSuppliesMain = () => {
     const name = newToolsSuppliesMain.trim();
     if (!name) return;
-    setTOOLS_SUPPLIES_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedToolsSuppliesMain(name);
-    setNewToolsSuppliesMain('');
+    handleAddMain('tools', name, setTOOLS_SUPPLIES_MAIN_SUBS, setSelectedToolsSuppliesMain, () => setNewToolsSuppliesMain(''));
   };
   const removeToolsSuppliesMain = (name: string) => {
-    setTOOLS_SUPPLIES_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedToolsSuppliesMain === name) {
-      setSelectedToolsSuppliesMain('');
-      setSelectedToolsSuppliesSub('');
-    }
+    handleDeleteMain('tools', name, setTOOLS_SUPPLIES_MAIN_SUBS, selectedToolsSuppliesMain, setSelectedToolsSuppliesMain);
   };
   const addToolsSuppliesSubsBulk = () => {
     if (!selectedToolsSuppliesMain) return;
     const raw = newToolsSuppliesSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setTOOLS_SUPPLIES_MAIN_SUBS(prev => {
-      const existing = prev[selectedToolsSuppliesMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedToolsSuppliesMain]: [...existing, ...toAdd] };
-    });
-    setSelectedToolsSuppliesSub('');
-    setNewToolsSuppliesSubsBulk('');
+    handleAddSubsBulk('tools', selectedToolsSuppliesMain, tokens, setTOOLS_SUPPLIES_MAIN_SUBS, setSelectedToolsSuppliesSub, () => setNewToolsSuppliesSubsBulk(''));
   };
   const removeToolsSuppliesSub = (s: string) => {
     if (!selectedToolsSuppliesMain) return;
-    setTOOLS_SUPPLIES_MAIN_SUBS(prev => {
-      const list = prev[selectedToolsSuppliesMain] ?? [];
-      return { ...prev, [selectedToolsSuppliesMain]: list.filter(x => x !== s) };
-    });
-    if (selectedToolsSuppliesSub === s) setSelectedToolsSuppliesSub('');
+    handleDeleteSub('tools', selectedToolsSuppliesMain, s, setTOOLS_SUPPLIES_MAIN_SUBS, selectedToolsSuppliesSub, setSelectedToolsSuppliesSub);
   };
   const renameToolsSuppliesMain = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -4100,45 +3521,21 @@ export default function CategoriesPage() {
   const addWholesaleMain = () => {
     const name = newWholesaleMain.trim();
     if (!name) return;
-    setWHOLESALE_MAIN_SUBS(prev => {
-      if (prev[name]) return prev;
-      return { ...prev, [name]: [] };
-    });
-    setSelectedWholesaleMain(name);
-    setNewWholesaleMain('');
+    handleAddMain('wholesale', name, setWHOLESALE_MAIN_SUBS, setSelectedWholesaleMain, () => setNewWholesaleMain(''));
   };
   const removeWholesaleMain = (name: string) => {
-    setWHOLESALE_MAIN_SUBS(prev => {
-      const n = { ...prev };
-      delete n[name];
-      return n;
-    });
-    if (selectedWholesaleMain === name) {
-      setSelectedWholesaleMain('');
-      setSelectedWholesaleSub('');
-    }
+    handleDeleteMain('wholesale', name, setWHOLESALE_MAIN_SUBS, selectedWholesaleMain, setSelectedWholesaleMain);
   };
   const addWholesaleSubsBulk = () => {
     if (!selectedWholesaleMain) return;
     const raw = newWholesaleSubsBulk;
-    const tokens = raw.split(/[\,\n]/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = raw.split(/[\,\n،]/).map(t => t.trim()).filter(t => t.length > 0);
     if (tokens.length === 0) return;
-    setWHOLESALE_MAIN_SUBS(prev => {
-      const existing = prev[selectedWholesaleMain] ?? [];
-      const toAdd = tokens.filter(s => !existing.includes(s));
-      if (toAdd.length === 0) return prev;
-      return { ...prev, [selectedWholesaleMain]: [...existing, ...toAdd] };
-    });
-    setSelectedWholesaleSub('');
-    setNewWholesaleSubsBulk('');
+    handleAddSubsBulk('wholesale', selectedWholesaleMain, tokens, setWHOLESALE_MAIN_SUBS, setSelectedWholesaleSub, () => setNewWholesaleSubsBulk(''));
   };
   const removeWholesaleSub = (s: string) => {
     if (!selectedWholesaleMain) return;
-    setWHOLESALE_MAIN_SUBS(prev => {
-      const list = prev[selectedWholesaleMain] ?? [];
-      return { ...prev, [selectedWholesaleMain]: list.filter(x => x !== s) };
-    });
-    if (selectedWholesaleSub === s) setSelectedWholesaleSub('');
+    handleDeleteSub('wholesale', selectedWholesaleMain, s, setWHOLESALE_MAIN_SUBS, selectedWholesaleSub, setSelectedWholesaleSub);
   };
   const renameWholesaleMain = (prevName: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -6507,12 +5904,12 @@ export default function CategoriesPage() {
                     >
                       ⚙️ إدارة القسم
                     </button>
-                    <button 
+                    {/* <button 
                       className="btn-edit"
                       onClick={() => setEditingCategory(category)}
                     >
                        تعديل
-                    </button>
+                    </button> */}
                     {/* <button 
                       className={`btn-toggle ${category.status}`}
                       onClick={() => handleStatusToggle(category.id)}
@@ -6832,3 +6229,5 @@ export default function CategoriesPage() {
     </div>
   );
 }
+  
+  

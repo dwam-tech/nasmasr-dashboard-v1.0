@@ -25,9 +25,6 @@ export default function DateInput(props: { value: string; onChange: (v: string) 
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  useEffect(() => {
-    if (parsed && open) setViewDate(parsed);
-  }, [parsed, open]);
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -60,7 +57,7 @@ export default function DateInput(props: { value: string; onChange: (v: string) 
       <button
         type="button"
         className="calendar-button"
-        onClick={() => setOpen((p) => !p)}
+        onClick={() => setOpen((p) => { const next = !p; if (next && parsed) setViewDate(parsed); return next; })}
         aria-label="فتح التقويم"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -121,4 +118,3 @@ export default function DateInput(props: { value: string; onChange: (v: string) 
     </div>
   );
 }
-
